@@ -824,6 +824,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   ctx->ptx_parser->set_ptx_warp_size(m_shader_config);
   ptx_file_line_stats_create_exposed_latency_tracker(m_config.num_shader());
 
+// TRACE: initialize power model
 #ifdef GPGPUSIM_POWER_MODEL
   m_gpgpusim_wrapper = new gpgpu_sim_wrapper(config.g_power_simulation_enabled,
                                              config.g_power_config_name);
@@ -1858,6 +1859,7 @@ void gpgpu_sim::cycle() {
     if (g_interactive_debugger_enabled) gpgpu_debug();
 
       // McPAT main cycle (interface with McPAT)
+// TRACE: sample the performance counter and compute the power consumption
 #ifdef GPGPUSIM_POWER_MODEL
     if (m_config.g_power_simulation_enabled) {
       mcpat_cycle(m_config, getShaderCoreConfig(), m_gpgpusim_wrapper,

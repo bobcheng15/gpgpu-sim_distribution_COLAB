@@ -304,9 +304,12 @@ void gpgpu_sim_wrapper::set_tcache_power(double hits, double misses) {
   // valid for no-caches architectures)
 }
 
+// TRACE: this function compute the shared memory's read power
 void gpgpu_sim_wrapper::set_shrd_mem_power(double accesses) {
   p->sys.core[0].sharedmemory.read_accesses =
       accesses * p->sys.scaling_coefficients[SHRD_ACC];
+  // TRACE: sys.scaling_coefficients[SHRD_ACC] is the scaling coefficient generated to account for the 
+  // power error caused by unknwon implementation detail.
   sample_perf_counters[SHRD_ACC] = accesses;
 }
 
@@ -700,6 +703,8 @@ void gpgpu_sim_wrapper::update_components_power() {
   assert("Total Power does not equal the sum of the components\n" && (check));
 }
 
+// TRACE: this function compute the power consumption using the performance 
+// counter set in mcpat_cycle()
 void gpgpu_sim_wrapper::compute() { proc->compute(); }
 void gpgpu_sim_wrapper::print_power_kernel_stats(
     double gpu_sim_cycle, double gpu_tot_sim_cycle, double init_value,

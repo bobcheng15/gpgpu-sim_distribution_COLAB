@@ -53,14 +53,15 @@ void mcpat_cycle(const gpgpu_sim_config &config,
     mcpat_init = false;
     return;
   }
-
+  // TRACE: Sampling time period reached, sample the performance counter
   if ((tot_cycle + cycle) % stat_sample_freq == 0) {
+    // TRACE: set the instruction related power component
     wrapper->set_inst_power(
         shdr_config->gpgpu_clock_gated_lanes, stat_sample_freq,
         stat_sample_freq, power_stats->get_total_inst(),
         power_stats->get_total_int_inst(), power_stats->get_total_fp_inst(),
-        power_stats->get_l1d_read_accesses(),
-        power_stats->get_l1d_write_accesses(),
+        power_stats->get_l1d_read_accesses(), // number of load instruction
+        power_stats->get_l1d_write_accesses(), // number of store instruction
         power_stats->get_committed_inst());
 
     // Single RF for both int and fp ops

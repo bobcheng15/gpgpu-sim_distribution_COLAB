@@ -4871,7 +4871,8 @@ void LoadStoreU::computeEnergy(bool is_tdp) {
   ccache.power_t.reset();
   tcache.power_t.reset();
   LSQ->power_t.reset();
-
+  // TRACE: compute the shard memory power consumption
+  // Where local_result.power.readOp.dynamic is the result from cacti
   sharedmemory.power_t.readOp.dynamic +=
       (sharedmemory.caches->stats_t.readAc.hit *
            sharedmemory.caches->local_result.power.readOp.dynamic +
