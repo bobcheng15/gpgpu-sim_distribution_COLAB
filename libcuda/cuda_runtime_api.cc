@@ -193,6 +193,8 @@ void register_ptx_function(const char *name, function_info *impl) {
 struct _cuda_device_id *gpgpu_context::GPGPUSim_Init() {
   _cuda_device_id *the_device = the_gpgpusim->the_cude_device;
   if (!the_device) {
+    // TRACE: gpgpu_ptx_sim_init_perf initialize the gpgpusim simulator
+    // This method is called at the first call to any CUDA API function
     gpgpu_sim *the_gpu = gpgpu_ptx_sim_init_perf();
 
     cudaDeviceProp *prop = (cudaDeviceProp *)calloc(sizeof(cudaDeviceProp), 1);
@@ -926,6 +928,8 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
   if (mode) sscanf(mode, "%u", &(ctx->func_sim->g_ptx_sim_mode));
   gpgpusim_ptx_assert(!ctx->api->g_cuda_launch_stack.empty(),
                       "empty launch stack");
+  // TRACE: grab the launch information pushed on to the luanch stack
+  // For example, extracting the kernel name, gridDim, blockDim ... etc.
   kernel_config config = ctx->api->g_cuda_launch_stack.back();
   {
     dim3 gridDim = config.grid_dim();
@@ -945,6 +949,8 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
          (ctx->func_sim->g_ptx_sim_mode) ? "functional simulation"
                                          : "performance simulation",
          stream ? stream->get_uid() : 0);
+  // TRACE: initialize kernel information, this is the object that is going to be 
+  // used to obtain the launch information throughout the execution of the simulator
   kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
       hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
       context);
@@ -1000,6 +1006,9 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
       "blockDim = (%u,%u,%u) \n",
       kname.c_str(), stream ? stream->get_uid() : 0, gridDim.x, gridDim.y,
       gridDim.z, blockDim.x, blockDim.y, blockDim.z);
+  // TRACE: create a stream and push it on the the stream manager queue.
+  // Instead of calling the kernel right away, this is carry out in order to 
+  // support simultaneous kernel launches.
   stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, stream);
   ctx->the_gpgpusim->g_stream_manager->push(op);
   ctx->api->g_cuda_launch_stack.pop_back();

@@ -72,6 +72,7 @@ static void termination_callback() {
   fflush(stdout);
 }
 
+// TRACE: wait for new kernel, if there's one, start running the kernel 
 void *gpgpu_sim_thread_concurrent(void *ctx_ptr) {
   gpgpu_context *ctx = (gpgpu_context *)ctx_ptr;
   atexit(termination_callback);
@@ -194,6 +195,9 @@ void gpgpu_context::exit_simulation() {
   fflush(stdout);
 }
 
+// TRACE: inistialize the gpgpusim simulator
+// this parse the config file and create all of the component
+// IMPORTANT: if we want to add register cache, we may have to look into this 
 gpgpu_sim *gpgpu_context::gpgpu_ptx_sim_init_perf() {
   srand(1);
   print_splash();

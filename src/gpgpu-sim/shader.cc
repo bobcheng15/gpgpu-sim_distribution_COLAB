@@ -246,15 +246,21 @@ void shader_core_ctx::create_exec_pipeline() {
   opndcoll_rfu_t::uint_vector_t cu_sets;
 
   // configure generic collectors
+  // TRACE: this type of collector is not used by GTX480 simulation
   m_operand_collector.add_cu_set(
       GEN_CUS, m_config->gpgpu_operand_collector_num_units_gen,
       m_config->gpgpu_operand_collector_num_out_ports_gen);
-
+  // TRACE: connect the input output port of each operand collector 
+  // To all of the desired input and output location in the execution pipeline.
   for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_gen;
        i++) {
+    // TRACE: input port at allocation pipeline stage
+    // For gettting the register number ... etc.
     in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
     in_ports.push_back(&m_pipeline_reg[ID_OC_SFU]);
     in_ports.push_back(&m_pipeline_reg[ID_OC_MEM]);
+    // TRACE: output port at execution pipeline stage
+    // For providing the register value to the execution unit
     out_ports.push_back(&m_pipeline_reg[OC_EX_SP]);
     out_ports.push_back(&m_pipeline_reg[OC_EX_SFU]);
     out_ports.push_back(&m_pipeline_reg[OC_EX_MEM]);
@@ -282,7 +288,8 @@ void shader_core_ctx::create_exec_pipeline() {
     m_operand_collector.add_port(in_ports, out_ports, cu_sets);
     in_ports.clear(), out_ports.clear(), cu_sets.clear();
   }
-
+  // TRACE: Add the specialized operand collector 
+  // This is used by GTX480
   if (m_config->enable_specialized_operand_collector) {
     m_operand_collector.add_cu_set(
         SP_CUS, m_config->gpgpu_operand_collector_num_units_sp,
@@ -303,7 +310,7 @@ void shader_core_ctx::create_exec_pipeline() {
     m_operand_collector.add_cu_set(
         INT_CUS, m_config->gpgpu_operand_collector_num_units_int,
         m_config->gpgpu_operand_collector_num_out_ports_int);
-
+    // TRACE: Connect the input and output port for each sepcialized oeprand collector
     for (unsigned i = 0; i < m_config->gpgpu_operand_collector_num_in_ports_sp;
          i++) {
       in_ports.push_back(&m_pipeline_reg[ID_OC_SP]);
@@ -364,7 +371,7 @@ void shader_core_ctx::create_exec_pipeline() {
       in_ports.clear(), out_ports.clear(), cu_sets.clear();
     }
   }
-
+  // TRACE: initialize the operand collector
   m_operand_collector.init(m_config->gpgpu_num_reg_banks, this);
 
   m_num_function_units =
@@ -1937,6 +1944,7 @@ void ldst_unit::L1_latency_queue_cycle() {
             if (mf_next->get_inst().out[r] > 0) {
               assert(m_pending_writes[mf_next->get_inst().warp_id()]
                                      [mf_next->get_inst().out[r]] > 0);
+              // write back the register value one register a cycle
               unsigned still_pending =
                   --m_pending_writes[mf_next->get_inst().warp_id()]
                                     [mf_next->get_inst().out[r]];
@@ -1965,6 +1973,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         if (!write_sent) delete mf_next;
 
       } else if (status == RESERVATION_FAIL) {
+        // all lines are reserved, stalled
         assert(!read_sent);
         assert(!write_sent);
       } else {
@@ -1972,7 +1981,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         l1_latency_queue[j][0] = NULL;
       }
     }
-
+    // pipelined cache
     for (unsigned stage = 0; stage < m_config->m_L1D_config.l1_latency - 1;
          ++stage)
       if (l1_latency_queue[j][stage] == NULL) {
@@ -2556,6 +2565,7 @@ void ldst_unit::cycle() {
     if (m_pipeline_reg[stage]->empty() && !m_pipeline_reg[stage + 1]->empty())
       move_warp(m_pipeline_reg[stage], m_pipeline_reg[stage + 1]);
 
+  // handle the response from NoC/L2
   if (!m_response_fifo.empty()) {
     mem_fetch *mf = m_response_fifo.front();
     if (mf->get_access_type() == TEXTURE_ACC_R) {
@@ -3404,6 +3414,7 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() {
       assert(oc_id < _outputs);
       _request[i][oc_id] = 1;
     }
+    // TRACE: [TODO] this is set in another place!
     if (m_allocated_bank[i].is_write()) {
       assert(i < (unsigned)_inputs);
       _inmatch[i] = 0;  // write gets priority
@@ -3414,7 +3425,9 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() {
 
   // Loop through diagonals of request matrix
   // printf("####\n");
-
+  
+  // TRACE: grant the bank to be accessed by a operand collector in a diaganal access 
+  // pattern 
   for (int p = 0; p < _square; ++p) {
     output = (_pri + p) % _outputs;
 
@@ -3422,6 +3435,8 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() {
     for (input = 0; input < _inputs; ++input) {
       assert(input < _inputs);
       assert(output < _outputs);
+      // TRACE: if the current bank has not been allocated, and there's a request
+      // to that bank from a output operand collector
       if ((output < _outputs) && (_inmatch[input] == -1) &&
           //( _outmatch[output] == -1 ) &&   //allow OC to read multiple reg
           // banks at the same cycle
@@ -3443,7 +3458,8 @@ std::list<opndcoll_rfu_t::op_t> opndcoll_rfu_t::arbiter_t::allocate_reads() {
   _pri = (_pri + 1) % _outputs;
 
   /// <--- end code from booksim
-
+  // TRACE: if the allocated request is a read, remove the request from the head
+  // of the queue
   m_last_cu = _pri;
   for (unsigned i = 0; i < m_num_banks; i++) {
     if (_inmatch[i] != -1) {
@@ -3865,7 +3881,8 @@ void opndcoll_rfu_t::init(unsigned num_banks, shader_core_ctx *shader) {
   m_warp_size = shader->get_config()->warp_size;
   m_bank_warp_shift = (unsigned)(int)(log(m_warp_size + 0.5) / log(2.0));
   assert((m_bank_warp_shift == 5) || (m_warp_size != 32));
-
+  
+  // TRACE: not used by GTX480
   sub_core_model = shader->get_config()->sub_core_model;
   m_num_warp_sceds = shader->get_config()->gpgpu_num_sched_per_core;
   if (sub_core_model)
@@ -3939,22 +3956,32 @@ bool opndcoll_rfu_t::writeback(warp_inst_t &inst) {
 void opndcoll_rfu_t::dispatch_ready_cu() {
   for (unsigned p = 0; p < m_dispatch_units.size(); ++p) {
     dispatch_unit_t &du = m_dispatch_units[p];
+    // TRACE: find the next ready operand collector unit
+    // in an round robin fashion.
     collector_unit_t *cu = du.find_ready();
     if (cu) {
+      // TRACE: iterate through the non-register operands
       for (unsigned i = 0; i < (cu->get_num_operands() - cu->get_num_regs());
            i++) {
         if (m_shader->get_config()->gpgpu_clock_gated_reg_file) {
           unsigned active_count = 0;
+          // TRACE: iterate through all the warp register, stride = size of 
+          // clock gating group
           for (unsigned i = 0; i < m_shader->get_config()->warp_size;
                i = i + m_shader->get_config()->n_regfile_gating_group) {
             for (unsigned j = 0;
                  j < m_shader->get_config()->n_regfile_gating_group; j++) {
+              // TRACE: if one of the thread in the clock gate group is active,
+              // the whole clock gating group is active and not gated.
+              // This is used to gate the register power in branching situation
               if (cu->get_active_mask().test(i + j)) {
                 active_count += m_shader->get_config()->n_regfile_gating_group;
                 break;
               }
             }
           }
+          // TRACE: set the statistics for number activate register in non reg
+          // operation. 
           m_shader->incnon_rf_operands(active_count);
         } else {
           m_shader->incnon_rf_operands(
@@ -3968,16 +3995,20 @@ void opndcoll_rfu_t::dispatch_ready_cu() {
 
 void opndcoll_rfu_t::allocate_cu(unsigned port_num) {
   input_port_t &inp = m_in_ports[port_num];
+  // TRACE: in the case of GTX480, inp.m_in.size() = 1
   for (unsigned i = 0; i < inp.m_in.size(); i++) {
     if ((*inp.m_in[i]).has_ready()) {
       // find a free cu
+      // TRACE: iterate through the collector sets connected to this port 
       for (unsigned j = 0; j < inp.m_cu_sets.size(); j++) {
         std::vector<collector_unit_t> &cu_set = m_cus[inp.m_cu_sets[j]];
         bool allocated = false;
+        // TRACE: iterate through all the collectos within the set
         for (unsigned k = 0; k < cu_set.size(); k++) {
           if (cu_set[k].is_free()) {
             collector_unit_t *cu = &cu_set[k];
             allocated = cu->allocate(inp.m_in[i], inp.m_out[i]);
+            // TRACE: add the operands to the target bank's queue
             m_arbiter.add_read_requests(cu);
             break;
           }
@@ -3994,6 +4025,8 @@ void opndcoll_rfu_t::allocate_reads() {
   // process read requests that do not have conflicts
   std::list<op_t> allocated = m_arbiter.allocate_reads();
   std::map<unsigned, op_t> read_ops;
+  // TRACE: if there are special mapping between the logical and physical 
+  // register number, do them here
   for (std::list<op_t>::iterator r = allocated.begin(); r != allocated.end();
        r++) {
     const op_t &rr = *r;
@@ -4010,7 +4043,9 @@ void opndcoll_rfu_t::allocate_reads() {
     op_t &op = r->second;
     unsigned cu = op.get_oc_id();
     unsigned operand = op.get_operand();
+    // TRACE: mark the ready field of the operand in the operand collector as ready
     m_cu[cu]->collect_operand(operand);
+    // TRACE: account for clock gating during a branch divergence
     if (m_shader->get_config()->gpgpu_clock_gated_reg_file) {
       unsigned active_count = 0;
       for (unsigned i = 0; i < m_shader->get_config()->warp_size;
@@ -4095,6 +4130,8 @@ bool opndcoll_rfu_t::collector_unit_t::allocate(register_set *pipeline_reg_set,
   return false;
 }
 
+// TRACE: dispatch the warp isntruction and invalidate all 
+// entries related to the dispatched warp in the operand collector
 void opndcoll_rfu_t::collector_unit_t::dispatch() {
   assert(m_not_ready.none());
   // move_warp(*m_output_register,m_warp);

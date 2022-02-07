@@ -255,6 +255,7 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
   for (unsigned way = 0; way < m_config.m_assoc; way++) {
     unsigned index = set_index * m_config.m_assoc + way;
     cache_block_t *line = m_lines[index];
+    // hit!
     if (line->m_tag == tag) {
       if (line->get_status(mask) == RESERVED) {
         idx = index;
@@ -298,15 +299,18 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
       }
     }
   }
+  // TRACE: all ways in the set are reserved, not enough capacity
   if (all_reserved) {
     assert(m_config.m_alloc_policy == ON_MISS);
     return RESERVATION_FAIL;  // miss and not enough space in cache to allocate
                               // on miss
   }
-
+  // TRACE: if a invalid (blank) line is found
   if (invalid_line != (unsigned)-1) {
     idx = invalid_line;
-  } else if (valid_line != (unsigned)-1) {
+  }
+  // TRACE: if no invalid line is found and a line is selected for replacement 
+  else if (valid_line != (unsigned)-1) {
     idx = valid_line;
   } else
     abort();  // if an unreserved block exists, it is either invalid or

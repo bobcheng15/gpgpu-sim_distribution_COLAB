@@ -255,6 +255,7 @@ void ArrayST::optimize_array() {
         long_channel_device_reduction;
     local_result.tag_array2->power = local_result.tag_array2->power * pppm_t;
   }
+  //l_ip.display_ip();
 }
 
 void ArrayST::leakage_feedback(double temperature) {
