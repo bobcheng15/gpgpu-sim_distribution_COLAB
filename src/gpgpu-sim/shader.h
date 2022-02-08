@@ -1265,7 +1265,8 @@ class ldst_unit : public pipelined_simd_unit {
   void flush();
   void invalidate();
   void writeback();
-
+  enum cache_request_status probe_l1_cache(new_addr_type addr, mem_fetch *mf);
+  
   // accessors
   virtual unsigned clock_multiplier() const;
 
@@ -1368,6 +1369,7 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
+  bool is_replicate(mem_fetch* mf);
 };
 
 enum pipeline_stage_name_t {
@@ -1914,6 +1916,8 @@ class shader_core_ctx : public core_t {
   }
   kernel_info_t *get_kernel() { return m_kernel; }
   unsigned get_sid() const { return m_sid; }
+  simt_core_cluster *get_cluster() { return m_cluster; } 
+  ldst_unit *get_ldst_unit() { return m_ldst_unit; }
 
   // used by functional simulation:
   // modifiers
@@ -2313,6 +2317,7 @@ class simt_core_cluster {
   void cache_invalidate();
   bool icnt_injection_buffer_full(unsigned size, bool write);
   void icnt_inject_request_packet(class mem_fetch *mf);
+  shader_core_ctx *get_core(int idx){ return m_core[idx]; }
 
   // for perfect memory interface
   bool response_queue_full() {

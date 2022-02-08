@@ -608,6 +608,7 @@ cache_stats::cache_stats() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
+  m_replication_hit = 0;
 }
 
 void cache_stats::clear() {
@@ -621,6 +622,7 @@ void cache_stats::clear() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
+  m_replication_hit = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -656,6 +658,10 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
     assert(0 && "Unknown cache access type or access fail");
 
   m_fail_stats[access_type][fail_outcome]++;
+}
+
+void cache_stats::inc_replication_hit(){
+  m_replication_hit ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -733,6 +739,8 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_data_port_busy_cycles + cs.m_cache_data_port_busy_cycles;
   ret.m_cache_fill_port_busy_cycles =
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
+  ret.m_replication_hit = 
+      m_replication_hit + cs.m_replication_hit;
   return ret;
 }
 
@@ -755,6 +763,7 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_port_available_cycles += cs.m_cache_port_available_cycles;
   m_cache_data_port_busy_cycles += cs.m_cache_data_port_busy_cycles;
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
+  m_replication_hit += cs.m_replication_hit;
   return *this;
 }
 
@@ -861,6 +870,7 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.port_available_cycles = m_cache_port_available_cycles;
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
+  t_css.replication_hit = m_replication_hit;
 
   css = t_css;
 }
@@ -1671,6 +1681,15 @@ enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
   m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
                                                   probe_status, access_status));
   return access_status;
+}
+
+enum cache_request_status data_cache::probe(new_addr_type addr, mem_fetch *mf){
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  enum cache_request_status probe_status =
+      m_tag_array->probe(block_addr, cache_index, mf, true);
+  return probe_status;
 }
 
 /// This is meant to model the first level data cache in Fermi.

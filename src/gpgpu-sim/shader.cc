@@ -1979,6 +1979,12 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
+        // we only consider replication hit for read accesses.
+        if (!mf_next->get_is_write() && status == MISS){
+          if (is_replicate(mf_next)){
+            m_L1D->inc_stats_replication_hit();
+          }
+        }
       }
     }
     // pipelined cache
@@ -1989,6 +1995,22 @@ void ldst_unit::L1_latency_queue_cycle() {
         l1_latency_queue[j][stage + 1] = NULL;
       }
   }
+}
+
+bool ldst_unit::is_replicate(mem_fetch * mf){
+  simt_core_cluster * cluster = m_core->get_cluster();
+  for (int i = 0; i < m_config->n_simt_cores_per_cluster; i ++){
+    shader_core_ctx * core = cluster->get_core(i);
+    // skip the same core
+    if (core == m_core) continue;
+    ldst_unit * other_ldst_unit = core->get_ldst_unit(); 
+    enum cache_request_status probe_result =
+        other_ldst_unit->probe_l1_cache(mf->get_addr(), mf);
+    if (probe_result == HIT){
+      return true;
+    }
+  }
+  return false;
 }
 
 bool ldst_unit::constant_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
@@ -2528,6 +2550,10 @@ void ldst_unit::writeback() {
   }
 }
 
+enum cache_request_status ldst_unit::probe_l1_cache(new_addr_type addr, mem_fetch *mf){
+  return m_L1D->probe(addr, mf);
+}
+
 unsigned ldst_unit::clock_multiplier() const {
   // to model multiple read port, we give multiple cycles for the memory units
   if (m_config->mem_unit_ports)
@@ -2834,10 +2860,10 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
 
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu\n",
+              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu, Replication_hits = %llu\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              css.res_fails);
+              css.res_fails, css.replication_hit);
 
       total_css += css;
     }
@@ -2851,6 +2877,11 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.pending_hits);
     fprintf(fout, "\tL1D_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);
+    fprintf(fout, "\tL1D_total_replication_hits = %llu\n", total_css.replication_hit);
+    if (total_css.misses > 0) {
+      fprintf(fout, "\tL1D_total_cache_replication_rate = %.4lf\n",
+              (double)total_css.replication_hit / (double)total_css.misses);
+    }
     total_css.print_port_stats(fout, "\tL1D_cache");
   }
 
