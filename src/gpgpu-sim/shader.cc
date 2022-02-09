@@ -1980,7 +1980,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
         // we only consider replication hit for read accesses.
-        if (!mf_next->get_is_write() && status == MISS){
+        if (!mf_next->get_is_write()){
           if (is_replicate(mf_next)){
             m_L1D->inc_stats_replication_hit();
           }
@@ -2880,7 +2880,7 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     fprintf(fout, "\tL1D_total_replication_hits = %llu\n", total_css.replication_hit);
     if (total_css.misses > 0) {
       fprintf(fout, "\tL1D_total_cache_replication_rate = %.4lf\n",
-              (double)total_css.replication_hit / (double)total_css.misses);
+              (double)total_css.replication_hit / (double)(total_css.misses + total_css.pending_hits));
     }
     total_css.print_port_stats(fout, "\tL1D_cache");
   }
