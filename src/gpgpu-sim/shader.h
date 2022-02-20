@@ -1302,6 +1302,7 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  l1_cache * get_l1_cache() const { return m_L1D; }
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1369,7 +1370,6 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
-  bool is_replicate(mem_fetch* mf);
 };
 
 enum pipeline_stage_name_t {

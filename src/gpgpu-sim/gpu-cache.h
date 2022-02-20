@@ -1558,6 +1558,12 @@ class l1_cache : public data_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
+  enum cache_request_status remote_access(bool wr,
+                                          enum cache_request_status status,
+                                          new_addr_type addr,
+                                          unsigned cache_index,
+                                          mem_fetch *mf, unsigned time,
+                                          std::list<cache_event> &events);                              
 
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,

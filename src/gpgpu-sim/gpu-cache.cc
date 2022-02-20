@@ -1699,7 +1699,60 @@ enum cache_request_status data_cache::probe(new_addr_type addr, mem_fetch *mf){
 enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events) {
-  return data_cache::access(addr, mf, time, events);
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  bool wr = mf->get_is_write();
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  enum cache_request_status probe_status =
+      m_tag_array->probe(block_addr, cache_index, mf, true);
+  probe_status = remote_access(wr, probe_status, addr, cache_index, mf, time, events);
+  enum cache_request_status access_status =
+      process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
+  m_stats.inc_stats(mf->get_access_type(),
+                    m_stats.select_stats_status(probe_status, access_status));
+  m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
+                                                  probe_status, access_status));
+  return access_status;                                                  
+}
+
+enum cache_request_status l1_cache::remote_access(
+    bool wr, enum cache_request_status probe_status, new_addr_type addr,
+    unsigned cache_index, mem_fetch *mf, unsigned time,
+    std::list<cache_event> &events) {
+  // This function implement the most ideal form of remote cache line fetching.
+  // On a miss, all the L1 caches within the core are searched, if the desired 
+  // line is found in another L1 cache, that line is brought in with zero delay
+  // and the access result is a hit.
+
+  if (probe_status == MISS && !wr){
+    // If the read access to own L1 cache end up as a miss
+    // search through all the clusters
+    for (int i = 0; i < m_gpu->getShaderCoreConfig()->n_simt_clusters; i ++){  
+      simt_core_cluster * cluster = m_gpu->get_cluster(i);
+      // search through all the cores within the cluster
+      for (int j = 0; j < m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster; j ++){
+        shader_core_ctx * core = cluster->get_core(j);
+        ldst_unit * other_core_ldst = core->get_ldst_unit();
+        // skip if working with itself
+        if (this == other_core_ldst->get_l1_cache()) continue;
+        enum cache_request_status remote_access_status = 
+            other_core_ldst->probe_l1_cache(mf->get_addr(), mf);
+        if (remote_access_status == HIT){
+          // bring in the remote cache line.
+          //printf("REMOTE_HIT!!");
+          m_stats.inc_replication_hit();
+          return probe_status;
+        }
+      }
+    }
+    // cache line not found in other L1 cache, the probing result stays the same.
+    return probe_status;
+  }
+  else {
+    // if the probe result is not a miss or the access is write, no remote access,
+    // and the access result stays the same.
+    return probe_status;
+  }
 }
 
 // The l2 cache access function calls the base data_cache access

@@ -535,6 +535,7 @@ class gpgpu_sim : public gpgpu_t {
 
   void perf_memcpy_to_gpu(size_t dst_start_addr, size_t count);
 
+  simt_core_cluster * get_cluster(int idx) { return m_cluster[idx]; };
   // The next three functions added to be used by the functional simulation
   // function
 
