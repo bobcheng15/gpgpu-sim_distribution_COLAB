@@ -779,7 +779,7 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
   m_replication_hit += cs.m_replication_hit;
   for (int i = 0; i < 15; i ++){
-    ret.m_replication_hit_core_dist[i] += cs.m_replication_hit_core_dist[i];
+    m_replication_hit_core_dist[i] += cs.m_replication_hit_core_dist[i];
   }
   return *this;
 }
