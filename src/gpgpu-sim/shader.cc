@@ -2852,7 +2852,7 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(stdout, 
               "\tcore[%d]:");
       for (int j = 0; j < m_shader_config->n_simt_clusters; j ++) {
-        fprintf("%llu, ", css.replication_hit_core_dist[j]);
+        fprintf(stdout, "%llu, ", css.replication_hit_core_dist[j]);
       }
       fprintf(stdout, "\n");
       total_css += css;
@@ -2873,9 +2873,9 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(fout, "\tL1D_total_cache_replication_rate = %.4lf\n",
               (double)total_css.replication_hit / (double)total_css.misses);
     }
-    fprintf(fout, "\tL1D_total_cache_replication_hit_core_dist = ")
+    fprintf(fout, "\tL1D_total_cache_replication_hit_core_dist = ");
     for (int i = 0; i < m_shader_config->n_simt_clusters; i ++){
-      fprintf("%llu, ", total_css.replication_hit_core_dist[i]);
+      fprintf(fout, "%llu, ", total_css.replication_hit_core_dist[i]);
     }
     fprintf(fout, "\n");
     total_css.print_port_stats(fout, "\tL1D_cache");
