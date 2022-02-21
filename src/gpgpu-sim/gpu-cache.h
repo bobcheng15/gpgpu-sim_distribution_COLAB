@@ -959,6 +959,7 @@ struct cache_sub_stats {
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
   unsigned long long replication_hit;
+  unsigned long long replication_hit_core_dist[15];
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -970,6 +971,9 @@ struct cache_sub_stats {
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
     replication_hit = 0;
+    for (int i = 0; i < 15; i ++){
+      replication_hit_core_dist[i] = 0;
+    }
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -983,6 +987,9 @@ struct cache_sub_stats {
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
     replication_hit += css.replication_hit;
+    for (int i = 0; i < 15; i ++){
+      replication_hit_core_dist[i] += css.replication_hit_core_dist[i];
+    }
     return *this;
   }
 
@@ -1003,6 +1010,10 @@ struct cache_sub_stats {
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
     ret.replication_hit =
         replication_hit + cs.replication_hit;
+    for (int i = 0; i < 15; i ++){
+      ret.replication_hit_core_dist[i] = 
+          replication_hit_core_dist[i] + cs.replication_hit_core_dist[i];
+    }
     return ret;
   }
 
@@ -1081,6 +1092,7 @@ class cache_stats {
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
   void inc_replication_hit();
+  void inc_replication_hit_core_dist(unsigned core_idx);
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1113,6 +1125,7 @@ class cache_stats {
   std::vector<std::vector<unsigned long long> > m_stats_pw;
   std::vector<std::vector<unsigned long long> > m_fail_stats;
   unsigned long long m_replication_hit;
+  unsigned long long m_replication_hit_core_dist[15];
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;

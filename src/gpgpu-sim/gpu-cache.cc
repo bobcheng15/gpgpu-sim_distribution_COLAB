@@ -609,6 +609,9 @@ cache_stats::cache_stats() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  for (int i = 0; i < 15; i ++){
+    m_replication_hit_core_dist[i] = 0;
+  }
 }
 
 void cache_stats::clear() {
@@ -623,6 +626,9 @@ void cache_stats::clear() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  for (int i = 0; i < 15; i ++){
+    m_replication_hit_core_dist[i] = 0;
+  }
 }
 
 void cache_stats::clear_pw() {
@@ -662,6 +668,10 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
 
 void cache_stats::inc_replication_hit(){
   m_replication_hit ++;
+}
+
+void cache_stats::inc_replication_hit_core_dist(unsigned core_idx){
+  m_replication_hit_core_dist[core_idx] ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -741,6 +751,10 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
   ret.m_replication_hit = 
       m_replication_hit + cs.m_replication_hit;
+  for (int i = 0; i < 15; i ++){
+    ret.m_replication_hit_core_dist[i] = 
+        m_replication_hit_core_dist[i] + cs.m_replication_hit_core_dist[i];
+  }
   return ret;
 }
 
@@ -764,6 +778,9 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_data_port_busy_cycles += cs.m_cache_data_port_busy_cycles;
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
   m_replication_hit += cs.m_replication_hit;
+  for (int i = 0; i < 15; i ++){
+    ret.m_replication_hit_core_dist[i] += cs.m_replication_hit_core_dist[i];
+  }
   return *this;
 }
 
@@ -871,6 +888,9 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
   t_css.replication_hit = m_replication_hit;
+  for (int i = 0; i < 15; i ++){
+    t_css.replication_hit_core_dist[i] = m_replication_hit_core_dist[i];
+  }
 
   css = t_css;
 }
@@ -1734,18 +1754,20 @@ enum cache_request_status l1_cache::remote_access(
       for (int j = 0; j < m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster; j ++){
         shader_core_ctx * core = cluster->get_core(j);
         ldst_unit * other_core_ldst = core->get_ldst_unit();
-        // skip if working with itself
+        // skip if examining itself
         if (this == other_core_ldst->get_l1_cache()) continue;
         enum cache_request_status remote_access_status = 
             other_core_ldst->probe_l1_cache(mf->get_addr(), mf);
         if (remote_access_status == HIT){
           remote_hit = true;
-          // bring in the remote cache line.
-          //printf("REMOTE_HIT!!");
-          m_stats.inc_replication_hit();
-          return probe_status;
+          // accumulate the remote service count of the core.
+          m_stats.inc_replication_hit_core_dist(i);
         }
       }
+    }
+    // data is found in one or more other core
+    if (remote_hit){
+      m_stats.inc_replication_hit();
     }
     // cache line not found in other L1 cache, the probing result stays the same.
     return probe_status;
