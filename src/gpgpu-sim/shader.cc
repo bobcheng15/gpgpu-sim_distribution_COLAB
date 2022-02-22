@@ -2850,12 +2850,13 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
       m_cluster[i]->get_L1D_sub_stats(css);
       fprintf(stdout, 
-              "\tcore[%d]:");
+              "\tcore[%d]:", i);
       for (int j = 0; j < m_shader_config->n_simt_clusters; j ++) {
         fprintf(stdout, "%llu, ", css.replication_hit_core_dist[j]);
       }
       fprintf(stdout, "\n");
       total_css += css;
+      total_css.accumulate_dist(i, css);
     }
 
     fprintf(fout, "\tL1D_total_cache_accesses = %llu\n", total_css.accesses);

@@ -960,6 +960,7 @@ struct cache_sub_stats {
   unsigned long long fill_port_busy_cycles;
   unsigned long long replication_hit;
   unsigned long long replication_hit_core_dist[15];
+  unsigned long long full_replication_core_dist[15][15];
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -973,6 +974,9 @@ struct cache_sub_stats {
     replication_hit = 0;
     for (int i = 0; i < 15; i ++){
       replication_hit_core_dist[i] = 0;
+      for (int j = 0; j < 15; j ++){
+        full_replication_core_dist[i][j] = 0;
+      } 
     }
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
@@ -1015,6 +1019,12 @@ struct cache_sub_stats {
           replication_hit_core_dist[i] + cs.replication_hit_core_dist[i];
     }
     return ret;
+  }
+
+  void accumulate_dist(unsigned core_idx, const cache_sub_stats & cs){
+    for (int i = 0; i < 15; i ++){
+      full_replication_core_dist[core_idx][i] += cs.replication_hit_core_dist[i];
+    }
   }
 
   void print_port_stats(FILE *fout, const char *cache_name) const;
