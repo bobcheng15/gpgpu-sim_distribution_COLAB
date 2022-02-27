@@ -1718,6 +1718,10 @@ void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   if (m_L1T) m_L1T->get_sub_stats(css);
 }
 
+void ldst_unit::clear_L1D_replication_dist(){
+  if (m_L1D) m_L1D->clear_replication_dist();
+}
+
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 #if 0
       printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu \n",
@@ -2856,8 +2860,18 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       }
       fprintf(stdout, "\n");
       total_css += css;
-      total_css.accumulate_dist(i, css);
+      m_cluster[i]->clear_L1D_replication_dist();
+      //total_css.accumulate_dist(i, css);
     }
+    // fprintf(stdout, "\t=========== ACCUMULATED REPLICATION DISTRIBUTION ==========\n");
+    // for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i ++){
+    //   fprintf(stdout, 
+    //           "\tcore[%d]:", i);
+    //   for (unsigned j = 0; j < m_shader_config->n_simt_clusters; j ++){
+    //     fprintf(stdout, "%llu, ", total_css.full_replication_core_dist[i][j]);
+    //   }
+    //   fprintf(stdout, "\n");
+    // }
 
     fprintf(fout, "\tL1D_total_cache_accesses = %llu\n", total_css.accesses);
     fprintf(fout, "\tL1D_total_cache_misses = %llu\n", total_css.misses);
@@ -3799,6 +3813,10 @@ void shader_core_ctx::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   m_ldst_unit->get_L1T_sub_stats(css);
 }
 
+void shader_core_ctx::clear_L1D_replication_dist(){
+  m_ldst_unit->clear_L1D_replication_dist();
+}
+
 void shader_core_ctx::get_icnt_power_stats(long &n_simt_to_mem,
                                            long &n_mem_to_simt) const {
   n_simt_to_mem += m_stats->n_simt_to_mem[m_sid];
@@ -4501,6 +4519,12 @@ void simt_core_cluster::get_L1T_sub_stats(struct cache_sub_stats &css) const {
     total_css += temp_css;
   }
   css = total_css;
+}
+
+void simt_core_cluster::clear_L1D_replication_dist(){
+  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i){
+    m_core[i]->clear_L1D_replication_dist();
+  }
 }
 
 void exec_shader_core_ctx::checkExecutionStatusAndUpdate(warp_inst_t &inst,

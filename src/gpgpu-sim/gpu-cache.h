@@ -1120,6 +1120,7 @@ class cache_stats {
                                enum cache_request_status *access_status,
                                unsigned num_access_status) const;
   void get_sub_stats(struct cache_sub_stats &css) const;
+  void clear_replication_core_dist();
 
   // Get per-window cache stats for AerialVision
   void get_sub_stats_pw(struct cache_sub_stats_pw &css) const;
@@ -1221,6 +1222,9 @@ class baseline_cache : public cache_t {
   }
   void get_sub_stats(struct cache_sub_stats &css) const {
     m_stats.get_sub_stats(css);
+  }
+  void clear_replication_dist(){
+    m_stats.clear_replication_core_dist();
   }
   // Clear per-window stats for AerialVision support
   void clear_pw() { m_stats.clear_pw(); }

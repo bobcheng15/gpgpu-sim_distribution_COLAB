@@ -891,8 +891,13 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   for (int i = 0; i < 15; i ++){
     t_css.replication_hit_core_dist[i] = m_replication_hit_core_dist[i];
   }
-
   css = t_css;
+}
+
+void cache_stats::clear_replication_core_dist(){
+  for (int i = 0; i < 15; i ++){
+    m_replication_hit_core_dist[i] = 0;
+  }
 }
 
 void cache_stats::get_sub_stats_pw(struct cache_sub_stats_pw &css) const {
