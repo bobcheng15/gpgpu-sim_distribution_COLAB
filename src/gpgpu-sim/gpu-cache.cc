@@ -1157,6 +1157,15 @@ void baseline_cache::send_read_request(new_addr_type addr,
     assert(0);
 }
 
+enum cache_request_status baseline_cache::probe(new_addr_type addr, mem_fetch *mf){
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  enum cache_request_status probe_status =
+      m_tag_array->probe(block_addr, cache_index, mf, true);
+  return probe_status;
+}
+
 /// Sends write request to lower level memory (write or writeback)
 void data_cache::send_write_request(mem_fetch *mf, cache_event request,
                                     unsigned time,
@@ -1605,6 +1614,12 @@ enum cache_request_status read_only_cache::access(
                        m_stats.select_stats_status(status, cache_status));
   return cache_status;
 }
+
+void read_only_cache::install_promoted_line(
+new_addr_type addr, mem_fetch *mf, unsigned time){
+  m_tag_array->fill(addr, time, mf);
+}
+
 
 //! A general function that takes the result of a tag_array probe
 //  and performs the correspding functions based on the cache configuration

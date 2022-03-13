@@ -1180,6 +1180,7 @@ class baseline_cache : public cache_t {
   void invalidate() { m_tag_array->invalidate(); }
   void print(FILE *fp, unsigned &accesses, unsigned &misses) const;
   void display_state(FILE *fp) const;
+  enum cache_request_status probe(new_addr_type addr, mem_fetch *mf);
 
   // Stat collection
   const cache_stats &get_stats() const { return m_stats; }
@@ -1333,6 +1334,8 @@ class read_only_cache : public baseline_cache {
                                            std::list<cache_event> &events);
 
   virtual ~read_only_cache() {}
+
+  void install_promoted_line (new_addr_type addr, mem_fetch * mf, unsigned time);
 
  protected:
   read_only_cache(const char *name, cache_config &config, int core_id,

@@ -1926,59 +1926,94 @@ void ldst_unit::L1_latency_queue_cycle() {
   for (int j = 0; j < m_config->m_L1D_config.l1_banks; j++) {
     if ((l1_latency_queue[j][0]) != NULL) {
       mem_fetch *mf_next = l1_latency_queue[j][0];
-      std::list<cache_event> events;
-      enum cache_request_status status =
-          m_L1D->access(mf_next->get_addr(), mf_next,
-                        m_core->get_gpu()->gpu_sim_cycle +
-                            m_core->get_gpu()->gpu_tot_sim_cycle,
-                        events);
-
-      bool write_sent = was_write_sent(events);
-      bool read_sent = was_read_sent(events);
-
-      if (status == HIT) {
-        assert(!read_sent);
+      // access the promotion cache
+      enum cache_request_status p_cache_status = MISS;
+      // only consult the p cache for global loads
+      if (mf_next->get_inst().is_load()){
+         p_cache_status = m_L1P->probe(mf_next->get_addr(), mf_next);
+      }
+      assert(p_cache_status == HIT || p_cache_status == MISS);
+      // if the request hit in the p cache, feed the data from the p cache to
+      // the desination register. If all pending writes on a register are
+      // satified, release the scoreboard entry of the register.
+      if (p_cache_status == HIT){
         l1_latency_queue[j][0] = NULL;
-        if (mf_next->get_inst().is_load()) {
-          for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++)
-            if (mf_next->get_inst().out[r] > 0) {
-              assert(m_pending_writes[mf_next->get_inst().warp_id()]
-                                     [mf_next->get_inst().out[r]] > 0);
-              // write back the register value one register a cycle
-              unsigned still_pending =
-                  --m_pending_writes[mf_next->get_inst().warp_id()]
-                                    [mf_next->get_inst().out[r]];
-              if (!still_pending) {
-                m_pending_writes[mf_next->get_inst().warp_id()].erase(
-                    mf_next->get_inst().out[r]);
-                m_scoreboard->releaseRegister(mf_next->get_inst().warp_id(),
-                                              mf_next->get_inst().out[r]);
-                m_core->warp_inst_complete(mf_next->get_inst());
-              }
+        for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r ++){
+          if (mf_next->get_inst().out[r] > 0) {
+            assert(m_pending_writes[mf_next->get_inst().warp_id()]
+                                   [mf_next->get_inst().out[r]] > 0);
+            unsigned still_pending =
+                --m_pending_writes[mf_next->get_inst().warp_id()]
+                                  [mf_next->get_inst().out[r]];
+            if (!still_pending) {
+              m_pending_writes[mf_next->get_inst().warp_id()].erase(
+                  mf_next->get_inst().out[r]);
+              m_scoreboard->releaseRegister(mf_next->get_inst().warp_id(),
+                                            mf_next->get_inst().out[r]);
+              m_core->warp_inst_complete(mf_next->get_inst());
             }
+          }
         }
+      }
+      // if the request miss the p cache (either because it being a write or
+      // a load missing the p cache), handle the memory request in the normal
+      // l1 data cache.
+      else {
+        std::list<cache_event> events;
+        // access the normal l1 cache
+        enum cache_request_status status =
+            m_L1D->access(mf_next->get_addr(), mf_next,
+                          m_core->get_gpu()->gpu_sim_cycle +
+                              m_core->get_gpu()->gpu_tot_sim_cycle,
+                          events);
 
-        // For write hit in WB policy
-        if (mf_next->get_inst().is_store() && !write_sent) {
-          unsigned dec_ack =
-              (m_config->m_L1D_config.get_mshr_type() == SECTOR_ASSOC)
-                  ? (mf_next->get_data_size() / SECTOR_SIZE)
-                  : 1;
+        bool write_sent = was_write_sent(events);
+        bool read_sent = was_read_sent(events);
 
-          mf_next->set_reply();
+        if (status == HIT) {
+          assert(!read_sent);
+          l1_latency_queue[j][0] = NULL;
+          if (mf_next->get_inst().is_load()) {
+            for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++)
+              if (mf_next->get_inst().out[r] > 0) {
+                assert(m_pending_writes[mf_next->get_inst().warp_id()]
+                                       [mf_next->get_inst().out[r]] > 0);
+                // write back the register value one register a cycle
+                unsigned still_pending =
+                    --m_pending_writes[mf_next->get_inst().warp_id()]
+                                      [mf_next->get_inst().out[r]];
+                if (!still_pending) {
+                  m_pending_writes[mf_next->get_inst().warp_id()].erase(
+                      mf_next->get_inst().out[r]);
+                  m_scoreboard->releaseRegister(mf_next->get_inst().warp_id(),
+                                                mf_next->get_inst().out[r]);
+                  m_core->warp_inst_complete(mf_next->get_inst());
+                }
+              }
+          }
 
-          for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
+          // For write hit in WB policy
+          if (mf_next->get_inst().is_store() && !write_sent) {
+            unsigned dec_ack =
+                (m_config->m_L1D_config.get_mshr_type() == SECTOR_ASSOC)
+                    ? (mf_next->get_data_size() / SECTOR_SIZE)
+                    : 1;
+
+            mf_next->set_reply();
+
+            for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
+          }
+
+          if (!write_sent) delete mf_next;
+
+        } else if (status == RESERVATION_FAIL) {
+          // all lines are reserved, stalled
+          assert(!read_sent);
+          assert(!write_sent);
+        } else {
+          assert(status == MISS || status == HIT_RESERVED);
+          l1_latency_queue[j][0] = NULL;
         }
-
-        if (!write_sent) delete mf_next;
-
-      } else if (status == RESERVATION_FAIL) {
-        // all lines are reserved, stalled
-        assert(!read_sent);
-        assert(!write_sent);
-      } else {
-        assert(status == MISS || status == HIT_RESERVED);
-        l1_latency_queue[j][0] = NULL;
       }
     }
     // pipelined cache
@@ -2388,6 +2423,23 @@ ldst_unit::ldst_unit(mem_fetch_interface *icnt,
       l1_latency_queue[j].resize(m_config->m_L1D_config.l1_latency,
                                  (mem_fetch *)NULL);
   }
+  if (!m_config->m_L1P_config.disabled()) {
+    char L1P_name[STRSIZE];
+    snprintf(L1P_name, STRSIZE, "L1P_%03d", m_sid);
+    m_L1P = new read_only_cache(L1P_name, m_config->m_L1P_config, m_sid,
+                                get_shader_constant_cache_id(), m_icnt, 
+                                IN_L1C_MISS_QUEUE);
+  }
+  // TODO: set the number of promotion target as a hyperparameter
+  promote_core_idx_list = new int[5];
+  // TODO: set the promotion target according to oracle, this is just a
+  // placeholder
+  for (int i = 0; i < 5; i ++){
+    promote_core_idx_list[i] = (sid + 1) % m_config->n_simt_clusters; 
+  }
+  promote_core_idx_list[1] = 
+       (sid == 0)? m_config->n_simt_clusters - 1: sid - 1;
+  assert(m_L1P != NULL);
   m_name = "MEM ";
 }
 
@@ -2528,6 +2580,36 @@ void ldst_unit::writeback() {
   }
 }
 
+void ldst_unit::promote(mem_fetch * mf, unsigned time){
+  // promote the incoming cache line to the promotion cache of other SM.
+  // iterate through all the predefined oracle promotion target (t-5).
+  // TODO: may need to set the number of promotion target as an hyperparameter
+  // in the final version
+  for (int i = 0; i < 5; i ++){
+    shader_core_ctx * target_core =
+    m_core->get_cluster()->get_gpu()->get_cluster(promote_core_idx_list[i])->get_core(0);
+    ldst_unit * target_ldst_unit = target_core->get_ldst_unit();
+    // first check whether the promotion target have the promote line or not
+    enum cache_request_status probe_result =
+    target_ldst_unit->probe_l1_cache(mf->get_addr(), mf); 
+    // if the target core alreay have or is going to have the promoting line,
+    // do not promote. Otherwise, promote the line to the target core's p
+    // cache.
+    if (probe_result != HIT && probe_result != HIT_RESERVED){
+        target_ldst_unit->install_promoted_line(mf->get_addr(), mf, time); 
+    }
+  }
+}
+
+void ldst_unit::install_promoted_line(new_addr_type addr, mem_fetch *mf,
+unsigned time){
+  m_L1P->install_promoted_line(addr, mf, time);
+}
+
+enum cache_request_status ldst_unit::probe_l1_cache(new_addr_type addr, mem_fetch *mf){
+  return m_L1D->probe(addr, mf);
+}
+
 unsigned ldst_unit::clock_multiplier() const {
   // to model multiple read port, we give multiple cycles for the memory units
   if (m_config->mem_unit_ports)
@@ -2613,6 +2695,10 @@ void ldst_unit::cycle() {
           if (m_L1D->fill_port_free()) {
             m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
                                 m_core->get_gpu()->gpu_tot_sim_cycle);
+            if (mf->get_access_type() == GLOBAL_ACC_R){
+              promote(mf, m_core->get_gpu()->gpu_sim_cycle +
+                m_core->get_gpu()->gpu_tot_sim_cycle);
+            }
             m_response_fifo.pop_front();
           }
         }
