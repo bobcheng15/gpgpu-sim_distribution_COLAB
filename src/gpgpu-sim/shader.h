@@ -1303,6 +1303,7 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1348,7 +1349,7 @@ class ldst_unit : public pipelined_simd_unit {
   tex_cache *m_L1T;        // texture cache
   read_only_cache *m_L1C;  // constant cache
   l1_cache *m_L1D;         // data cache
-  read_only_cache *m_L1P;   // promotion cache
+  promotion_cache *m_L1P;   // promotion cache
   int * promote_core_idx_list;
   std::map<unsigned /*warp_id*/,
            std::map<unsigned /*regnum*/, unsigned /*count*/>>
@@ -1958,6 +1959,7 @@ class shader_core_ctx : public core_t {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
 
   void get_icnt_power_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
 
@@ -2349,6 +2351,8 @@ class simt_core_cluster {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
+
   shader_core_ctx *  get_core(int idx) const { return m_core[idx]; }
 
   void get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;

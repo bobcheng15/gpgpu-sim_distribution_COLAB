@@ -1717,6 +1717,9 @@ void ldst_unit::get_L1C_sub_stats(struct cache_sub_stats &css) const {
 void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   if (m_L1T) m_L1T->get_sub_stats(css);
 }
+void ldst_unit::get_L1P_sub_stats(struct cache_sub_stats &css) const {
+  if (m_L1P) m_L1P->get_sub_stats(css);
+}
 
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 #if 0
@@ -1930,7 +1933,9 @@ void ldst_unit::L1_latency_queue_cycle() {
       enum cache_request_status p_cache_status = MISS;
       // only consult the p cache for global loads
       if (mf_next->get_inst().is_load()){
-         p_cache_status = m_L1P->probe(mf_next->get_addr(), mf_next);
+         p_cache_status = m_L1P->access(mf_next->get_addr(), mf_next, 
+                                        m_core->get_gpu()->gpu_sim_cycle +
+                                        m_core->get_gpu()->gpu_tot_sim_cycle);
       }
       assert(p_cache_status == HIT || p_cache_status == MISS);
       // if the request hit in the p cache, feed the data from the p cache to
@@ -2426,7 +2431,7 @@ ldst_unit::ldst_unit(mem_fetch_interface *icnt,
   if (!m_config->m_L1P_config.disabled()) {
     char L1P_name[STRSIZE];
     snprintf(L1P_name, STRSIZE, "L1P_%03d", m_sid);
-    m_L1P = new read_only_cache(L1P_name, m_config->m_L1P_config, m_sid,
+    m_L1P = new promotion_cache(L1P_name, m_config->m_L1P_config, m_sid,
                                 get_shader_constant_cache_id(), m_icnt, 
                                 IN_L1C_MISS_QUEUE);
   }
@@ -2980,6 +2985,32 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.pending_hits);
     fprintf(fout, "\tL1T_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);
+  }
+  
+  // L1P
+  if (!m_shader_config->m_L1P_config.disabled()) {
+    total_css.clear();
+    css.clear();
+    fprintf(fout, "L1P_cache:\n");
+    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i) {
+      m_cluster[i]->get_L1P_sub_stats(css);
+      fprintf(stdout,
+              "\tL1D_cache_core[%d]: Promoted_lines = %llu, Lines_used = %llu, "
+              "Use_rate%.3lf\n",
+              i, css.n_promoted_line, css.n_promoted_line_used,
+              (double)css.n_promoted_line_used / (double)css.n_promoted_line);
+
+      total_css += css;
+    }
+    fprintf(fout, "L1P_total_promoted_lines = %llu\n", 
+            total_css.n_promoted_line);
+    fprintf(fout, "L1P_total_promoted_lines_used = %llu\n",
+            total_css.n_promoted_line_used);
+    if (total_css.n_promoted_line != 0){
+        fprintf(fout, "L1P_Line_utilization_rate = %.3lf\n",
+                (double)total_css.n_promoted_line_used /
+                (double)total_css.n_promoted_line);
+    }
   }
 }
 
@@ -3856,6 +3887,9 @@ void shader_core_ctx::get_L1C_sub_stats(struct cache_sub_stats &css) const {
 void shader_core_ctx::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   m_ldst_unit->get_L1T_sub_stats(css);
 }
+void shader_core_ctx::get_L1P_sub_stats(struct cache_sub_stats &css) const {
+  m_ldst_unit->get_L1P_sub_stats(css);
+}
 
 void shader_core_ctx::get_icnt_power_stats(long &n_simt_to_mem,
                                            long &n_mem_to_simt) const {
@@ -4556,6 +4590,17 @@ void simt_core_cluster::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   total_css.clear();
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i) {
     m_core[i]->get_L1T_sub_stats(temp_css);
+    total_css += temp_css;
+  }
+  css = total_css;
+}
+void simt_core_cluster::get_L1P_sub_stats(struct cache_sub_stats &css) const {
+  struct cache_sub_stats temp_css;
+  struct cache_sub_stats total_css;
+  temp_css.clear();
+  total_css.clear();
+  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i) {
+    m_core[i]->get_L1P_sub_stats(temp_css);
     total_css += temp_css;
   }
   css = total_css;

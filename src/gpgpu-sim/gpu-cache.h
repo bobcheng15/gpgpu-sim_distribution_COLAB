@@ -123,6 +123,8 @@ struct cache_block_t {
   virtual unsigned long long get_last_access_time() = 0;
   virtual void set_last_access_time(unsigned long long time,
                                     mem_access_sector_mask_t sector_mask) = 0;
+  virtual bool get_been_read() = 0;
+  virtual void set_been_read() = 0;
   virtual unsigned long long get_alloc_time() = 0;
   virtual void set_ignore_on_fill(bool m_ignore,
                                   mem_access_sector_mask_t sector_mask) = 0;
@@ -148,6 +150,7 @@ struct line_cache_block : public cache_block_t {
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
     m_readable = true;
+    m_been_read = false;
   }
   void allocate(new_addr_type tag, new_addr_type block_addr, unsigned time,
                 mem_access_sector_mask_t sector_mask) {
@@ -159,6 +162,7 @@ struct line_cache_block : public cache_block_t {
     m_status = RESERVED;
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
+    m_been_read = false;
   }
   void fill(unsigned time, mem_access_sector_mask_t sector_mask) {
     // if(!m_ignore_on_fill_status)
@@ -187,6 +191,12 @@ struct line_cache_block : public cache_block_t {
   virtual void set_last_access_time(unsigned long long time,
                                     mem_access_sector_mask_t sector_mask) {
     m_last_access_time = time;
+  }
+  virtual void set_been_read(){
+    m_been_read = true;
+  }
+  virtual bool get_been_read(){
+    return m_been_read;
   }
   virtual unsigned long long get_alloc_time() { return m_alloc_time; }
   virtual void set_ignore_on_fill(bool m_ignore,
@@ -219,6 +229,7 @@ struct line_cache_block : public cache_block_t {
   bool m_ignore_on_fill_status;
   bool m_set_modified_on_fill;
   bool m_readable;
+  bool m_been_read;
 };
 
 struct sector_cache_block : public cache_block_t {
@@ -342,6 +353,15 @@ struct sector_cache_block : public cache_block_t {
 
   virtual unsigned long long get_last_access_time() {
     return m_line_last_access_time;
+  }
+
+  
+  virtual bool get_been_read(){
+    // do nothing
+  }
+
+  virtual void set_been_read(){
+    // do nothing
   }
 
   virtual void set_last_access_time(unsigned long long time,
@@ -782,6 +802,7 @@ class cache_config {
   friend class l1_cache;
   friend class l2_cache;
   friend class memory_sub_partition;
+  friend class promotion_cache;
 };
 
 class l1d_cache_config : public cache_config {
@@ -835,6 +856,9 @@ class tag_array {
 
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
+  bool get_block_been_read(unsigned idx) { 
+    return m_lines[idx]->get_been_read();
+  }
 
   void flush();       // flush all written entries
   void invalidate();  // invalidate all entries
@@ -958,6 +982,8 @@ struct cache_sub_stats {
   unsigned long long port_available_cycles;
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
+  unsigned long long n_promoted_line;
+  unsigned long long n_promoted_line_used;
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -968,6 +994,8 @@ struct cache_sub_stats {
     port_available_cycles = 0;
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
+    n_promoted_line = 0;
+    n_promoted_line_used = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -980,6 +1008,8 @@ struct cache_sub_stats {
     port_available_cycles += css.port_available_cycles;
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
+    n_promoted_line += css.n_promoted_line;
+    n_promoted_line_used += css.n_promoted_line_used;
     return *this;
   }
 
@@ -998,6 +1028,10 @@ struct cache_sub_stats {
         data_port_busy_cycles + cs.data_port_busy_cycles;
     ret.fill_port_busy_cycles =
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
+    ret.n_promoted_line = 
+        n_promoted_line + cs.n_promoted_line;
+    ret.n_promoted_line_used = 
+        n_promoted_line_used + cs.n_promoted_line_used;
     return ret;
   }
 
@@ -1075,6 +1109,8 @@ class cache_stats {
   // Increment AerialVision cache stats
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
+  void inc_n_promoted_line();
+  void inc_n_promoted_line_used();
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1106,7 +1142,8 @@ class cache_stats {
   // AerialVision cache stats (per-window)
   std::vector<std::vector<unsigned long long> > m_stats_pw;
   std::vector<std::vector<unsigned long long> > m_fail_stats;
-
+  unsigned long long m_n_promoted_line;
+  unsigned long long m_n_promoted_line_used;
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;
@@ -1335,7 +1372,6 @@ class read_only_cache : public baseline_cache {
 
   virtual ~read_only_cache() {}
 
-  void install_promoted_line (new_addr_type addr, mem_fetch * mf, unsigned time);
 
  protected:
   read_only_cache(const char *name, cache_config &config, int core_id,
@@ -1776,4 +1812,20 @@ class tex_cache : public cache_t {
   extra_mf_fields_lookup m_extra_mf_fields;
 };
 
+class promotion_cache : public read_only_cache {
+ public:
+  promotion_cache(const char *name, cache_config &config, int core_id,
+                  int type_id, mem_fetch_interface *memport,
+                  enum mem_fetch_status status)
+    : read_only_cache(name, config, core_id, type_id, memport, status){}
+    
+    // Access function for promotion cache, the access result is either a hit or
+    // a miss. On a hit, returns HIT and update the LRU information. On a miss 
+    // returns miss and do nothing.
+    virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
+                                             unsigned time);
+ 
+    void install_promoted_line (new_addr_type addr, mem_fetch * mf,
+                                unsigned time);
+};
 #endif
