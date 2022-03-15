@@ -1959,6 +1959,7 @@ void ldst_unit::L1_latency_queue_cycle() {
             }
           }
         }
+        delete mf_next;
       }
       // if the request miss the p cache (either because it being a write or
       // a load missing the p cache), handle the memory request in the normal
