@@ -54,6 +54,7 @@
 #include "stack.h"
 #include "stats.h"
 #include "traffic_breakdown.h"
+#include <random>
 
 #define NO_OP_FLAG 0xFF
 
@@ -1295,7 +1296,7 @@ class ldst_unit : public pipelined_simd_unit {
   void print(FILE *fout) const;
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                          unsigned &dl1_misses);
-  void get_cache_stats(unsigned &read_accesses, unsigned &write_accesses,
+  void get_cache_stats(unsigned &eread_accesses, unsigned &write_accesses,
                        unsigned &read_misses, unsigned &write_misses,
                        unsigned cache_type);
   void get_cache_stats(cache_stats &cs);
@@ -1374,6 +1375,7 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
+  std::default_random_engine rng;
 };
 
 enum pipeline_stage_name_t {

@@ -47,6 +47,7 @@
 #include "stat-tool.h"
 #include "traffic_breakdown.h"
 #include "visualizer.h"
+#include <algorithm>
 
 #define PRIORITIZE_MSHR_OVER_WB 1
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -2437,16 +2438,18 @@ ldst_unit::ldst_unit(mem_fetch_interface *icnt,
                                 IN_L1C_MISS_QUEUE);
   }
   // TODO: set the number of promotion target as a hyperparameter
-  promote_core_idx_list = new int[5];
-  // TODO: set the promotion target according to oracle, this is just a
-  // placeholder
-  for (int i = 0; i < 5; i ++){
-    promote_core_idx_list[i] = (sid + 1) % m_config->n_simt_clusters; 
+  promote_core_idx_list = new int[14];
+  // create a vector that hold all the possible promotion candidate
+  int promote_core_sid = 0;
+  for (int i = 0; i < 14; i ++){
+    if (promote_core_sid == sid) promote_core_sid ++;
+    promote_core_idx_list[i] = promote_core_sid;
+    promote_core_sid ++;
   }
-  promote_core_idx_list[1] = 
-       (sid == 0)? m_config->n_simt_clusters - 1: sid - 1;
   assert(m_L1P != NULL);
   m_name = "MEM ";
+  // seeding the rng
+  rng.seed(sid);
 }
 
 ldst_unit::ldst_unit(mem_fetch_interface *icnt,
@@ -2591,6 +2594,9 @@ void ldst_unit::promote(mem_fetch * mf, unsigned time){
   // iterate through all the predefined oracle promotion target (t-5).
   // TODO: may need to set the number of promotion target as an hyperparameter
   // in the final version
+  // randomly shuffle the candidate list
+  shuffle(promote_core_idx_list, 
+          promote_core_idx_list +m_config->n_simt_clusters - 1, rng);
   for (int i = 0; i < 5; i ++){
     shader_core_ctx * target_core =
     m_core->get_cluster()->get_gpu()->get_cluster(promote_core_idx_list[i])->get_core(0);
