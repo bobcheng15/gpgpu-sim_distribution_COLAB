@@ -2705,11 +2705,14 @@ void ldst_unit::cycle() {
           }
         } else {
           if (m_L1D->fill_port_free()) {
-            m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
+            mem_fetch * filled_mf = m_L1D->fill(mf, 
+                                m_core->get_gpu()->gpu_sim_cycle +
                                 m_core->get_gpu()->gpu_tot_sim_cycle);
-            if (mf->get_access_type() == GLOBAL_ACC_R){
-              promote(mf, m_core->get_gpu()->gpu_sim_cycle +
-                m_core->get_gpu()->gpu_tot_sim_cycle);
+            if (filled_mf != NULL){
+              if (filled_mf->get_access_type() == GLOBAL_ACC_R){
+                promote(filled_mf, m_core->get_gpu()->gpu_sim_cycle +
+                  m_core->get_gpu()->gpu_tot_sim_cycle);
+              }
             }
             m_response_fifo.pop_front();
           }

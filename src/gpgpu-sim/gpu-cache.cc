@@ -1052,7 +1052,7 @@ void baseline_cache::cycle() {
 
 /// Interface for response from lower memory level (model bandwidth restictions
 /// in caller)
-void baseline_cache::fill(mem_fetch *mf, unsigned time) {
+mem_fetch * baseline_cache::fill(mem_fetch *mf, unsigned time) {
   if (m_config.m_mshr_type == SECTOR_ASSOC) {
     assert(mf->get_original_mf());
     extra_mf_fields_lookup::iterator e =
@@ -1063,7 +1063,7 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
     if (e->second.pending_read > 0) {
       // wait for the other requests to come back
       delete mf;
-      return;
+      return NULL;
     } else {
       mem_fetch *temp = mf;
       mf = mf->get_original_mf();
@@ -1094,6 +1094,7 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
   }
   m_extra_mf_fields.erase(mf);
   m_bandwidth_management.use_fill_port(mf);
+  return mf;
 }
 
 /// Checks if mf is waiting to be filled by lower memory level
