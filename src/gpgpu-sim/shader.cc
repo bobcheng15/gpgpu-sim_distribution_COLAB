@@ -2592,12 +2592,10 @@ void ldst_unit::writeback() {
 void ldst_unit::promote(mem_fetch * mf, unsigned time){
   // promote the incoming cache line to the promotion cache of other SM.
   // iterate through all the predefined oracle promotion target (t-5).
-  // TODO: may need to set the number of promotion target as an hyperparameter
-  // in the final version
   // randomly shuffle the candidate list
   shuffle(promote_core_idx_list, 
           promote_core_idx_list +m_config->n_simt_clusters - 1, rng);
-  for (int i = 0; i < 5; i ++){
+  for (int i = 0; i < m_config->n_promotion_target; i ++){
     shader_core_ctx * target_core =
     m_core->get_cluster()->get_gpu()->get_cluster(promote_core_idx_list[i])->get_core(0);
     ldst_unit * target_ldst_unit = target_core->get_ldst_unit();
