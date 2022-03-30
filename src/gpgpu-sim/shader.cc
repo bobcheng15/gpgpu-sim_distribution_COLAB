@@ -2437,11 +2437,10 @@ ldst_unit::ldst_unit(mem_fetch_interface *icnt,
                                 get_shader_constant_cache_id(), m_icnt, 
                                 IN_L1C_MISS_QUEUE);
   }
-  // TODO: set the number of promotion target as a hyperparameter
-  promote_core_idx_list = new int[14];
+  promote_core_idx_list = new int[m_config->n_simt_clusters - 1];
   // create a vector that hold all the possible promotion candidate
   int promote_core_sid = 0;
-  for (int i = 0; i < 14; i ++){
+  for (int i = 0; i < m_config->n_simt_clusters - 1; i ++){
     if (promote_core_sid == sid) promote_core_sid ++;
     promote_core_idx_list[i] = promote_core_sid;
     promote_core_sid ++;
