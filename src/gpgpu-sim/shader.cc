@@ -2156,6 +2156,7 @@ void ldst_unit::flush() {
 void ldst_unit::invalidate() {
   // Flush L1D cache
   m_L1D->invalidate();
+  m_L1P->invlaidate();
 }
 
 simd_function_unit::simd_function_unit(const shader_core_config *config) {
