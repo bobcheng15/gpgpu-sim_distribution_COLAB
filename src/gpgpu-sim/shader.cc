@@ -2649,7 +2649,6 @@ void ldst_unit::cycle() {
         m_response_fifo.pop_front();
       }
     } else if (mf->get_access_type() == PROMO_ACC) {
-      printf("DONE\n");
       if (m_L1P->fill_port_free()) {
           mf->set_status(IN_SHADER_FETCHED, 
                          m_core->get_gpu()->gpu_sim_cycle +
@@ -4455,7 +4454,6 @@ void simt_core_cluster::icnt_cycle() {
   if (!m_response_fifo.empty()) {
     mem_fetch *mf = m_response_fifo.front();
     unsigned cid = m_config->sid_to_cid(mf->get_sid());
-    printf("%u\n", cid);
     if (mf->get_access_type() == INST_ACC_R) {
       // instruction fetch response
       if (!m_core[cid]->fetch_unit_response_buffer_full()) {
