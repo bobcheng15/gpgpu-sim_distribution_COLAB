@@ -1827,5 +1827,6 @@ class promotion_cache : public read_only_cache {
  
     void install_promoted_line (new_addr_type addr, mem_fetch * mf,
                                 unsigned time);
+    mem_fetch * fill(mem_fetch *mf, unsigned time);
 };
 #endif

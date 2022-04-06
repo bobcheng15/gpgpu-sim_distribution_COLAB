@@ -2156,6 +2156,7 @@ void ldst_unit::flush() {
 void ldst_unit::invalidate() {
   // Flush L1D cache
   m_L1D->invalidate();
+  m_L1P->invalidate();
 }
 
 simd_function_unit::simd_function_unit(const shader_core_config *config) {
@@ -2588,33 +2589,6 @@ void ldst_unit::writeback() {
   }
 }
 
-void ldst_unit::promote(mem_fetch * mf, unsigned time){
-  // promote the incoming cache line to the promotion cache of other SM.
-  // iterate through all the predefined oracle promotion target (t-5).
-  // randomly shuffle the candidate list
-  shuffle(promote_core_idx_list, 
-          promote_core_idx_list +m_config->n_simt_clusters - 1, rng);
-  for (int i = 0; i < m_config->n_promotion_target; i ++){
-    shader_core_ctx * target_core =
-    m_core->get_cluster()->get_gpu()->get_cluster(promote_core_idx_list[i])->get_core(0);
-    ldst_unit * target_ldst_unit = target_core->get_ldst_unit();
-    // first check whether the promotion target have the promote line or not
-    enum cache_request_status probe_result =
-    target_ldst_unit->probe_l1_cache(mf->get_addr(), mf); 
-    // if the target core alreay have or is going to have the promoting line,
-    // do not promote. Otherwise, promote the line to the target core's p
-    // cache.
-    if (probe_result != HIT && probe_result != HIT_RESERVED){
-        target_ldst_unit->install_promoted_line(mf->get_addr(), mf, time); 
-    }
-  }
-}
-
-void ldst_unit::install_promoted_line(new_addr_type addr, mem_fetch *mf,
-unsigned time){
-  m_L1P->install_promoted_line(addr, mf, time);
-}
-
 enum cache_request_status ldst_unit::probe_l1_cache(new_addr_type addr, mem_fetch *mf){
   return m_L1D->probe(addr, mf);
 }
@@ -2674,6 +2648,16 @@ void ldst_unit::cycle() {
                             m_core->get_gpu()->gpu_tot_sim_cycle);
         m_response_fifo.pop_front();
       }
+    } else if (mf->get_access_type() == PROMO_ACC) {
+      printf("DONE\n");
+      if (m_L1P->fill_port_free()) {
+          mf->set_status(IN_SHADER_FETCHED, 
+                         m_core->get_gpu()->gpu_sim_cycle +
+                             m_core->get_gpu()->gpu_tot_sim_cycle);
+          m_L1P->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
+                              m_core->get_gpu()->gpu_tot_sim_cycle);
+          m_response_fifo.pop_front();
+      }
     } else {
       if (mf->get_type() == WRITE_ACK ||
           (m_config->gpgpu_perfect_mem && mf->get_is_write())) {
@@ -2702,15 +2686,8 @@ void ldst_unit::cycle() {
           }
         } else {
           if (m_L1D->fill_port_free()) {
-            mem_fetch * filled_mf = m_L1D->fill(mf, 
-                                m_core->get_gpu()->gpu_sim_cycle +
+            m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
                                 m_core->get_gpu()->gpu_tot_sim_cycle);
-            if (filled_mf != NULL){
-              if (filled_mf->get_access_type() == GLOBAL_ACC_R){
-                promote(filled_mf, m_core->get_gpu()->gpu_sim_cycle +
-                  m_core->get_gpu()->gpu_tot_sim_cycle);
-              }
-            }
             m_response_fifo.pop_front();
           }
         }
@@ -2720,6 +2697,7 @@ void ldst_unit::cycle() {
 
   m_L1T->cycle();
   m_L1C->cycle();
+  m_L1P->cycle();
   if (m_L1D) {
     m_L1D->cycle();
     if (m_config->m_L1D_config.l1_latency > 0) L1_latency_queue_cycle();
@@ -4477,6 +4455,7 @@ void simt_core_cluster::icnt_cycle() {
   if (!m_response_fifo.empty()) {
     mem_fetch *mf = m_response_fifo.front();
     unsigned cid = m_config->sid_to_cid(mf->get_sid());
+    printf("%u\n", cid);
     if (mf->get_access_type() == INST_ACC_R) {
       // instruction fetch response
       if (!m_core[cid]->fetch_unit_response_buffer_full()) {

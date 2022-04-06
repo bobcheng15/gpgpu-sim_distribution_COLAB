@@ -34,6 +34,7 @@
 
 #include <list>
 #include <queue>
+#include <random>
 
 class mem_fetch;
 
@@ -236,6 +237,7 @@ class memory_sub_partition {
   // is accessed (in both cudamemcpyies and otherwise) this value is added to
   // the gpgpu-sim cycle counters.
   unsigned m_memcpy_cycle_offset;
+  std::default_random_engine rng;
 };
 
 class L2interface : public mem_fetch_interface {

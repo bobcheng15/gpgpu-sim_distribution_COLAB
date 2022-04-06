@@ -1267,7 +1267,6 @@ class ldst_unit : public pipelined_simd_unit {
   void invalidate();
   void writeback();
   enum cache_request_status probe_l1_cache(new_addr_type addr, mem_fetch *mf);
-  void install_promoted_line(new_addr_type addr, mem_fetch *mf, unsigned time);
 
   // accessors
   virtual unsigned clock_multiplier() const;
@@ -1319,7 +1318,6 @@ class ldst_unit : public pipelined_simd_unit {
             Scoreboard *scoreboard, const shader_core_config *config,
             const memory_config *mem_config, shader_core_stats *stats,
             unsigned sid, unsigned tpc);
-  void promote(mem_fetch *mf, unsigned time); 
 
  protected:
   bool shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,

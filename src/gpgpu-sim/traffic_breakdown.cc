@@ -47,6 +47,7 @@ std::string traffic_breakdown::classify_memfetch(class mem_fetch* mf) {
       traffic_name = (mf->isatomic()) ? "GLOBAL_ATOMIC"
                                       : mem_access_type_str(GLOBAL_ACC_R);
       break;
+    case PROMO_ACC: break;
     default:
       assert(0 && "Unknown traffic type");
   }
