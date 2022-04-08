@@ -2692,7 +2692,7 @@ void ldst_unit::cycle() {
         }
       }
     }
-  }
+  } 
 
   m_L1T->cycle();
   m_L1C->cycle();
@@ -3466,7 +3466,6 @@ void shader_core_config::set_pipeline_latency() {
 
 void shader_core_ctx::cycle() {
   if (!isactive() && get_not_completed() == 0) return;
-
   m_stats->shader_cycles[m_sid]++;
   writeback();
   execute();
@@ -4462,7 +4461,13 @@ void simt_core_cluster::icnt_cycle() {
       }
     } else {
       // data response
-      if (!m_core[cid]->ldst_unit_response_buffer_full()) {
+      // if the intended core have completed its job and stop accepting rqst
+      // discard the promotion request packet to avoid network deadlock
+      if (!m_core[cid]->isactive() && m_core[cid]->get_not_completed() == 0) {
+          m_response_fifo.pop_front();
+          delete mf;
+      }
+      else if (!m_core[cid]->ldst_unit_response_buffer_full()) {
         m_response_fifo.pop_front();
         m_memory_stats->memlatstat_read_done(mf);
         m_core[cid]->accept_ldst_unit_response(mf);

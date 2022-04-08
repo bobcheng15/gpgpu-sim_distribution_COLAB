@@ -1913,6 +1913,8 @@ mem_fetch * promotion_cache::fill(mem_fetch *mf, unsigned time) {
   m_tag_array->fill(mf->get_addr(), time, mf);
   if (m_config.is_streaming()) m_tag_array->remove_pending_line(mf);
   m_bandwidth_management.use_fill_port(mf);
+  // increment promoted line performance counter
+  m_stats.inc_n_promoted_line();
   return mf;
 }
 /******************************************************************************************************************************************/
