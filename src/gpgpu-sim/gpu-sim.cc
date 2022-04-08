@@ -2090,7 +2090,7 @@ void gpgpu_sim::print_remote_access_pc_counter_stats(FILE *fout){
       } else {
         remote_access = remote_access_pc_counter[pc];
       }
-      fprintf(fout, "pc = %5u, mem_access = %5u, remote_access = %5u," 
+      fprintf(fout, "pc = %5u, mem_access = %5llu, remote_access = %5llu," 
                     "remote_rate = %.4lf\n", pc, mem_access, remote_access,
                     (double)remote_access / (double) mem_access);
     }
