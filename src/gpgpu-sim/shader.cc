@@ -2861,17 +2861,7 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(stdout, "\n");
       total_css += css;
       m_cluster[i]->clear_L1D_replication_dist();
-      //total_css.accumulate_dist(i, css);
     }
-    // fprintf(stdout, "\t=========== ACCUMULATED REPLICATION DISTRIBUTION ==========\n");
-    // for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i ++){
-    //   fprintf(stdout, 
-    //           "\tcore[%d]:", i);
-    //   for (unsigned j = 0; j < m_shader_config->n_simt_clusters; j ++){
-    //     fprintf(stdout, "%llu, ", total_css.full_replication_core_dist[i][j]);
-    //   }
-    //   fprintf(stdout, "\n");
-    // }
 
     fprintf(fout, "\tL1D_total_cache_accesses = %llu\n", total_css.accesses);
     fprintf(fout, "\tL1D_total_cache_misses = %llu\n", total_css.misses);

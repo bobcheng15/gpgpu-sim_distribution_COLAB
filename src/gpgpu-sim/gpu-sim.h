@@ -565,6 +565,9 @@ class gpgpu_sim : public gpgpu_t {
 
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
+  void inc_remote_access_pc_counter(address_type addr);
+  void inc_mem_access_pc_counter(address_type addr);
+  void print_remote_access_pc_counter_stats(FILE *fout);
 
  private:
   // clocks
@@ -638,6 +641,8 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
+  std::map<address_type, unsigned long long> remote_access_pc_counter;
+  std::map<address_type, unsigned long long> mem_access_pc_counter;
 
  public:
   unsigned long long gpu_sim_insn;

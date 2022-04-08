@@ -959,8 +959,7 @@ struct cache_sub_stats {
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
   unsigned long long replication_hit;
-  unsigned long long replication_hit_core_dist[15];
-  unsigned long long full_replication_core_dist[15][15];
+  unsigned long long replication_hit_core_dist[28];
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -972,11 +971,8 @@ struct cache_sub_stats {
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
     replication_hit = 0;
-    for (int i = 0; i < 15; i ++){
+    for (int i = 0; i < 28; i ++){
       replication_hit_core_dist[i] = 0;
-      for (int j = 0; j < 15; j ++){
-        full_replication_core_dist[i][j] = 0;
-      } 
     }
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
@@ -991,7 +987,7 @@ struct cache_sub_stats {
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
     replication_hit += css.replication_hit;
-    for (int i = 0; i < 15; i ++){
+    for (int i = 0; i < 28; i ++){
       replication_hit_core_dist[i] += css.replication_hit_core_dist[i];
     }
     return *this;
@@ -1014,17 +1010,11 @@ struct cache_sub_stats {
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
     ret.replication_hit =
         replication_hit + cs.replication_hit;
-    for (int i = 0; i < 15; i ++){
+    for (int i = 0; i < 28; i ++){
       ret.replication_hit_core_dist[i] = 
           replication_hit_core_dist[i] + cs.replication_hit_core_dist[i];
     }
     return ret;
-  }
-
-  void accumulate_dist(unsigned core_idx, const cache_sub_stats & cs){
-    for (int i = 0; i < 15; i ++){
-      full_replication_core_dist[core_idx][i] += cs.replication_hit_core_dist[i];
-    }
   }
 
   void print_port_stats(FILE *fout, const char *cache_name) const;
@@ -1136,7 +1126,7 @@ class cache_stats {
   std::vector<std::vector<unsigned long long> > m_stats_pw;
   std::vector<std::vector<unsigned long long> > m_fail_stats;
   unsigned long long m_replication_hit;
-  unsigned long long m_replication_hit_core_dist[15];
+  unsigned long long m_replication_hit_core_dist[28];
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;

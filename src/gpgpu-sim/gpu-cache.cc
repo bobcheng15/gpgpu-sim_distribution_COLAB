@@ -609,7 +609,7 @@ cache_stats::cache_stats() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     m_replication_hit_core_dist[i] = 0;
   }
 }
@@ -626,7 +626,7 @@ void cache_stats::clear() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     m_replication_hit_core_dist[i] = 0;
   }
 }
@@ -751,7 +751,7 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
   ret.m_replication_hit = 
       m_replication_hit + cs.m_replication_hit;
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     ret.m_replication_hit_core_dist[i] = 
         m_replication_hit_core_dist[i] + cs.m_replication_hit_core_dist[i];
   }
@@ -778,7 +778,7 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_data_port_busy_cycles += cs.m_cache_data_port_busy_cycles;
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
   m_replication_hit += cs.m_replication_hit;
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     m_replication_hit_core_dist[i] += cs.m_replication_hit_core_dist[i];
   }
   return *this;
@@ -888,14 +888,14 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
   t_css.replication_hit = m_replication_hit;
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     t_css.replication_hit_core_dist[i] = m_replication_hit_core_dist[i];
   }
   css = t_css;
 }
 
 void cache_stats::clear_replication_core_dist(){
-  for (int i = 0; i < 15; i ++){
+  for (int i = 0; i < 28; i ++){
     m_replication_hit_core_dist[i] = 0;
   }
 }
@@ -1728,6 +1728,7 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   bool wr = mf->get_is_write();
   new_addr_type block_addr = m_config.block_addr(addr);
   unsigned cache_index = (unsigned)-1;
+  m_gpu->inc_mem_access_pc_counter(mf->get_pc());
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
   enum cache_request_status access_status =
@@ -1773,6 +1774,7 @@ enum cache_request_status l1_cache::remote_access(
     // data is found in one or more other core
     if (remote_hit){
       m_stats.inc_replication_hit();
+      m_gpu->inc_remote_access_pc_counter(mf->get_pc());
     }
     // cache line not found in other L1 cache, the probing result stays the same.
     return probe_status;

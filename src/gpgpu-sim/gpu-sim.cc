@@ -1302,7 +1302,10 @@ void gpgpu_sim::gpu_print_stat() {
 
   // shader_print_l1_miss_stat( stdout );
   shader_print_cache_stats(stdout);
-
+  print_remote_access_pc_counter_stats(stdout);
+  // clear the mem access pc counter
+  mem_access_pc_counter.clear();
+  remote_access_pc_counter.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2053,3 +2056,43 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
+
+void gpgpu_sim::inc_remote_access_pc_counter(address_type addr){
+    // unregistered program counter
+    assert((int)addr != -1);
+    if (remote_access_pc_counter.find(addr) == remote_access_pc_counter.end()){
+      remote_access_pc_counter[addr] = 1;
+    } else {
+      remote_access_pc_counter[addr] ++;
+    }
+}
+
+void gpgpu_sim::inc_mem_access_pc_counter(address_type addr){
+    // unregistered program counter
+    if (mem_access_pc_counter.find(addr) == mem_access_pc_counter.end()){
+      mem_access_pc_counter[addr] = 1;
+    } else {
+      mem_access_pc_counter[addr] ++;
+    }
+}
+
+void gpgpu_sim::print_remote_access_pc_counter_stats(FILE *fout){
+    std::map<address_type, unsigned long long>::iterator it;
+    fprintf(fout, "\n========= remote access pc stats =========\n");
+    for (it = mem_access_pc_counter.begin(); it != mem_access_pc_counter.end();
+                it ++) {
+      unsigned long long mem_access, remote_access;
+      address_type pc;
+      pc = it->first;
+      mem_access = it->second;
+      if (remote_access_pc_counter.find(pc) == remote_access_pc_counter.end()){
+        remote_access = 0;
+      } else {
+        remote_access = remote_access_pc_counter[pc];
+      }
+      fprintf(fout, "pc = %5u, mem_access = %5u, remote_access = %5u," 
+                    "remote_rate = %.4lf\n", pc, mem_access, remote_access,
+                    (double)remote_access / (double) mem_access);
+    }
+}
+
