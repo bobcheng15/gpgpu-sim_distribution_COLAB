@@ -1728,7 +1728,6 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   bool wr = mf->get_is_write();
   new_addr_type block_addr = m_config.block_addr(addr);
   unsigned cache_index = (unsigned)-1;
-  m_gpu->inc_mem_access_pc_counter(mf->get_pc());
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
   enum cache_request_status access_status =
@@ -1752,6 +1751,7 @@ enum cache_request_status l1_cache::remote_access(
 
   if (probe_status == MISS && !wr){
     bool remote_hit = false;
+    m_gpu->inc_mem_access_pc_counter(mf->get_pc());
     // If the read access to own L1 cache end up as a miss
     // search through all the clusters
     for (int i = 0; i < m_gpu->getShaderCoreConfig()->n_simt_clusters; i ++){  
