@@ -1302,10 +1302,9 @@ void gpgpu_sim::gpu_print_stat() {
 
   // shader_print_l1_miss_stat( stdout );
   shader_print_cache_stats(stdout);
-  print_remote_access_pc_counter_stats(stdout);
+  print_remote_hit_table(stdout);
   // clear the mem access pc counter
-  mem_access_pc_counter.clear();
-  remote_access_pc_counter.clear();
+  remote_access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2057,42 +2056,75 @@ const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
 
-void gpgpu_sim::inc_remote_access_pc_counter(address_type addr){
-    // unregistered program counter
-    assert((int)addr != -1);
-    if (remote_access_pc_counter.find(addr) == remote_access_pc_counter.end()){
-      remote_access_pc_counter[addr] = 1;
-    } else {
-      remote_access_pc_counter[addr] ++;
-    }
+void gpgpu_sim::inc_remote_hit(address_type addr){
+  // unregistered program counter
+  assert(remote_access_table.find(addr) != remote_access_table.end());
+  remote_access_table[addr]->inc_remote_hit();
 }
 
-void gpgpu_sim::inc_mem_access_pc_counter(address_type addr){
-    // unregistered program counter
-    if (mem_access_pc_counter.find(addr) == mem_access_pc_counter.end()){
-      mem_access_pc_counter[addr] = 1;
-    } else {
-      mem_access_pc_counter[addr] ++;
-    }
+void gpgpu_sim::inc_miss(address_type addr){
+  // unregistered program counter
+  if (remote_access_table.find(addr) == remote_access_table.end()){
+    remote_access_table[addr] = new remote_access_entry();
+    remote_access_table[addr]->inc_miss();
+  } else {
+    remote_access_table[addr]->inc_miss();
+  }
 }
 
-void gpgpu_sim::print_remote_access_pc_counter_stats(FILE *fout){
-    std::map<address_type, unsigned long long>::iterator it;
+void gpgpu_sim::inc_remote_hit_dist(address_type addr, unsigned this_core_idx,
+                                    unsigned remote_core_idx) {
+  assert(remote_access_table.find(addr) != remote_access_table.end());
+  remote_access_table[addr]->inc_remote_hit_dist(this_core_idx, remote_core_idx);
+}
+
+void gpgpu_sim::print_remote_hit_table(FILE *fout){
+    std::map<address_type, remote_access_entry *>::iterator it;
     fprintf(fout, "\n========= remote access pc stats =========\n");
-    for (it = mem_access_pc_counter.begin(); it != mem_access_pc_counter.end();
+    for (it = remote_access_table.begin(); it != remote_access_table.end();
                 it ++) {
-      unsigned long long mem_access, remote_access;
+      remote_access_entry * remote_info = NULL;
       address_type pc;
       pc = it->first;
-      mem_access = it->second;
-      if (remote_access_pc_counter.find(pc) == remote_access_pc_counter.end()){
-        remote_access = 0;
-      } else {
-        remote_access = remote_access_pc_counter[pc];
-      }
-      fprintf(fout, "pc = %5u, mem_access = %5llu, remote_access = %5llu," 
-                    "remote_rate = %.4lf\n", pc, mem_access, remote_access,
-                    (double)remote_access / (double) mem_access);
+      remote_info = it->second;
+      assert(remote_info != NULL);
+      remote_info->print(fout, pc);
     }
 }
 
+remote_access_entry::remote_access_entry() {
+  n_misses = 0;
+  n_remote_hit = 0;
+  for (int i = 0; i < 28; i ++){
+    for (int j = 0; j < 28; j ++){
+      remote_hit_dist[i][j] = 0;
+    }
+  }
+}
+
+void remote_access_entry::inc_remote_hit_dist(unsigned this_core_idx,
+                                         unsigned remote_core_idx) {
+  remote_hit_dist[this_core_idx][remote_core_idx] ++;
+}
+
+void remote_access_entry::inc_remote_hit() {
+  n_remote_hit ++;
+}
+
+void remote_access_entry::inc_miss(){
+  n_misses ++;
+
+}
+
+void remote_access_entry::print(FILE * fout, address_type addr) {
+  fprintf(fout, "pc = %5u, mem_access = %5llu, remote_access = %5llu," 
+                  "remote_rate = %.4lf\n", addr, n_misses, n_remote_hit,
+                  (double)n_remote_hit / (double) n_misses);
+  fprintf(fout, "----- DSITRIBUTION -----\n");
+  for (int i = 0; i < 28; i ++) { 
+    for (int j = 0; j < 28; j ++){
+      fprintf(fout, "%5llu, ", remote_hit_dist[i][j]);
+    }
+    fprintf(fout, "\n");
+  }
+}

@@ -1564,7 +1564,9 @@ class l1_cache : public data_cache {
            mem_fetch_interface *memport, mem_fetch_allocator *mfcreator,
            enum mem_fetch_status status, class gpgpu_sim *gpu)
       : data_cache(name, config, core_id, type_id, memport, mfcreator, status,
-                   L1_WR_ALLOC_R, L1_WRBK_ACC, gpu) {}
+                   L1_WR_ALLOC_R, L1_WRBK_ACC, gpu) {
+          m_core_id = core_id;  
+        }
 
   virtual ~l1_cache() {}
 
@@ -1589,6 +1591,7 @@ class l1_cache : public data_cache {
            class gpgpu_sim *gpu)
       : data_cache(name, config, core_id, type_id, memport, mfcreator, status,
                    new_tag_array, L1_WR_ALLOC_R, L1_WRBK_ACC, gpu) {}
+  int m_core_id;
 };
 
 /// Models second level shared cache with global write-back

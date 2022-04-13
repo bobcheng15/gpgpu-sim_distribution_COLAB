@@ -63,7 +63,7 @@
 #define DUMPLOG 333
 
 class gpgpu_context;
-
+class remote_access_entry;
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1 };
@@ -565,9 +565,11 @@ class gpgpu_sim : public gpgpu_t {
 
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
-  void inc_remote_access_pc_counter(address_type addr);
-  void inc_mem_access_pc_counter(address_type addr);
-  void print_remote_access_pc_counter_stats(FILE *fout);
+  void inc_remote_hit(address_type addr);
+  void inc_miss(address_type addr);
+  void inc_remote_hit_dist(address_type addr, unsigned this_core_idx, 
+                           unsigned remote_core_idx);
+  void print_remote_hit_table(FILE *fout);
 
  private:
   // clocks
@@ -641,8 +643,7 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
-  std::map<address_type, unsigned long long> remote_access_pc_counter;
-  std::map<address_type, unsigned long long> mem_access_pc_counter;
+  std::map<address_type, remote_access_entry * > remote_access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -701,4 +702,16 @@ class exec_gpgpu_sim : public gpgpu_sim {
   virtual void createSIMTCluster();
 };
 
+class remote_access_entry { 
+ public:   
+  remote_access_entry();
+  void inc_remote_hit_dist(unsigned this_core_idx, unsigned remote_core_idx);
+  void inc_miss();
+  void inc_remote_hit();
+  void print(FILE * fout, address_type addr);
+ private: 
+  unsigned long long n_misses;
+  unsigned long long n_remote_hit;
+  unsigned long long remote_hit_dist[28][28];
+};
 #endif
