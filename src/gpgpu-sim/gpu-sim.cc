@@ -1302,9 +1302,9 @@ void gpgpu_sim::gpu_print_stat() {
 
   // shader_print_l1_miss_stat( stdout );
   shader_print_cache_stats(stdout);
-  print_remote_hit_table(stdout);
-  // clear the mem access pc counter
-  remote_access_table.clear();
+  print_hit_table(stdout);
+  // clear the mem access table
+  access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2056,75 +2056,50 @@ const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
 
-void gpgpu_sim::inc_remote_hit(address_type addr){
-  // unregistered program counter
-  assert(remote_access_table.find(addr) != remote_access_table.end());
-  remote_access_table[addr]->inc_remote_hit();
-}
-
-void gpgpu_sim::inc_miss(address_type addr){
-  // unregistered program counter
-  if (remote_access_table.find(addr) == remote_access_table.end()){
-    remote_access_table[addr] = new remote_access_entry();
-    remote_access_table[addr]->inc_miss();
-  } else {
-    remote_access_table[addr]->inc_miss();
+void gpgpu_sim::inc_hit_dist(new_addr_type addr, unsigned this_core_idx) {
+  if (access_table.find(addr) == access_table.end()){
+    access_table[addr] = new access_entry();
   }
+  access_table[addr]->inc_hit_dist(this_core_idx);
 }
 
-void gpgpu_sim::inc_remote_hit_dist(address_type addr, unsigned this_core_idx,
-                                    unsigned remote_core_idx) {
-  assert(remote_access_table.find(addr) != remote_access_table.end());
-  remote_access_table[addr]->inc_remote_hit_dist(this_core_idx, remote_core_idx);
-}
-
-void gpgpu_sim::print_remote_hit_table(FILE *fout){
-    std::map<address_type, remote_access_entry *>::iterator it;
-    fprintf(fout, "\n========= remote access pc stats =========\n");
-    for (it = remote_access_table.begin(); it != remote_access_table.end();
+void gpgpu_sim::print_hit_table(FILE *fout){
+    unsigned long long access_core_dist[29] = {0};
+    std::map<new_addr_type, access_entry *>::iterator it;
+    fprintf(fout, "\n========= memory access stats =========\n");
+    for (it = access_table.begin(); it != access_table.end();
                 it ++) {
-      remote_access_entry * remote_info = NULL;
-      address_type pc;
-      pc = it->first;
-      remote_info = it->second;
-      assert(remote_info != NULL);
-      remote_info->print(fout, pc);
+      access_entry * access_info = NULL;
+      new_addr_type addr;
+      addr = it->first;
+      access_info = it->second;
+      assert(access_info != NULL);
+      unsigned int access_core = access_info->print(fout, addr);
+      access_core_dist[access_core] ++;
     }
-}
-
-remote_access_entry::remote_access_entry() {
-  n_misses = 0;
-  n_remote_hit = 0;
-  for (int i = 0; i < 28; i ++){
-    for (int j = 0; j < 28; j ++){
-      remote_hit_dist[i][j] = 0;
-    }
-  }
-}
-
-void remote_access_entry::inc_remote_hit_dist(unsigned this_core_idx,
-                                         unsigned remote_core_idx) {
-  remote_hit_dist[this_core_idx][remote_core_idx] ++;
-}
-
-void remote_access_entry::inc_remote_hit() {
-  n_remote_hit ++;
-}
-
-void remote_access_entry::inc_miss(){
-  n_misses ++;
-
-}
-
-void remote_access_entry::print(FILE * fout, address_type addr) {
-  fprintf(fout, "pc = %5u, mem_access = %5llu, remote_access = %5llu," 
-                  "remote_rate = %.4lf\n", addr, n_misses, n_remote_hit,
-                  (double)n_remote_hit / (double) n_misses);
-  fprintf(fout, "----- DSITRIBUTION -----\n");
-  for (int i = 0; i < 28; i ++) { 
-    for (int j = 0; j < 28; j ++){
-      fprintf(fout, "%5llu, ", remote_hit_dist[i][j]);
+    for (int i = 0; i < 29; i ++) { 
+      fprintf(fout, "%d: %5llu,", i, access_core_dist[i]);
     }
     fprintf(fout, "\n");
+    
+}
+
+access_entry::access_entry() {
+  for (int i = 0; i < 28; i ++){
+    hit_dist[i] = false;
   }
+}
+
+void access_entry::inc_hit_dist(unsigned core_idx){
+  hit_dist[core_idx] = true;
+}
+
+unsigned int access_entry::print(FILE * fout, new_addr_type addr) {
+  //fprintf(fout, "addr = %7llu,", addr);
+  unsigned int shared_count = 0;
+  for (int i = 0; i < 28; i ++) { 
+    if (hit_dist[i]) shared_count ++;
+  }
+  //fprintf(fout, "sharing_core: %2u\n", shared_count);
+  return shared_count;
 }

@@ -1737,6 +1737,8 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
                     m_stats.select_stats_status(probe_status, access_status));
   m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
                                                   probe_status, access_status));
+  if (mf->get_access_type() == GLOBAL_ACC_R)
+    m_gpu->inc_hit_dist(block_addr, m_core_id);
   return access_status;                                                  
 }
 
@@ -1751,7 +1753,6 @@ enum cache_request_status l1_cache::remote_access(
 
   if (probe_status == MISS && !wr){
     bool remote_hit = false;
-    m_gpu->inc_miss(mf->get_pc());
     // If the read access to own L1 cache end up as a miss
     // search through all the clusters
     for (int i = 0; i < m_gpu->getShaderCoreConfig()->n_simt_clusters; i ++){  
@@ -1768,14 +1769,12 @@ enum cache_request_status l1_cache::remote_access(
           remote_hit = true;
           // accumulate the remote service count of the core.
           m_stats.inc_replication_hit_core_dist(i);
-          m_gpu->inc_remote_hit_dist(mf->get_pc(), m_core_id, i);
         }
       }
     }
     // data is found in one or more other core
     if (remote_hit){
       m_stats.inc_replication_hit();
-      m_gpu->inc_remote_hit(mf->get_pc());
     }
     // cache line not found in other L1 cache, the probing result stays the same.
     return probe_status;
