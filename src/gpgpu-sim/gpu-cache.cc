@@ -1737,8 +1737,6 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
                     m_stats.select_stats_status(probe_status, access_status));
   m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
                                                   probe_status, access_status));
-  if (mf->get_access_type() == GLOBAL_ACC_R)
-    m_gpu->inc_hit_dist(block_addr, m_core_id);
   return access_status;                                                  
 }
 

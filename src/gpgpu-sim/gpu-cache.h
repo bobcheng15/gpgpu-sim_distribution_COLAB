@@ -1609,6 +1609,9 @@ class l2_cache : public data_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
+  new_addr_type block_addr(new_addr_type addr) {
+    return m_config.block_addr(addr);
+  }
 };
 
 /*****************************************************************************/

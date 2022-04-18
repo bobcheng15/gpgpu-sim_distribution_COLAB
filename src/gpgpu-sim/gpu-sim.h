@@ -565,7 +565,7 @@ class gpgpu_sim : public gpgpu_t {
 
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
-  void inc_hit_dist(new_addr_type addr, unsigned this_core_idx);
+  void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
   void print_hit_table(FILE *fout);
 
  private:
@@ -640,7 +640,7 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
-  std::map<new_addr_type, access_entry * > access_table;
+  std::map<address_type, std::map<new_addr_type, access_entry *> *> access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -703,8 +703,10 @@ class access_entry {
  public:   
   access_entry();
   void inc_hit_dist(unsigned core_idx);
-  unsigned int print(FILE * fout, new_addr_type addr);
+  unsigned long long int print(FILE * fout, 
+                               new_addr_type addr, 
+                               unsigned & shared_count);
  private: 
-  bool hit_dist[28];
+  unsigned int hit_dist[28];
 };
 #endif
