@@ -63,7 +63,7 @@
 #define DUMPLOG 333
 
 class gpgpu_context;
-
+class access_entry;
 extern tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 
 enum dram_ctrl_t { DRAM_FIFO = 0, DRAM_FRFCFS = 1 };
@@ -565,6 +565,8 @@ class gpgpu_sim : public gpgpu_t {
 
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
+  void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
+  void print_hit_table(FILE *fout);
 
  private:
   // clocks
@@ -638,6 +640,7 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
+  std::map<address_type, std::map<new_addr_type, access_entry *> *> access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -696,4 +699,14 @@ class exec_gpgpu_sim : public gpgpu_sim {
   virtual void createSIMTCluster();
 };
 
+class access_entry { 
+ public:   
+  access_entry();
+  void inc_hit_dist(unsigned core_idx);
+  unsigned long long int print(FILE * fout, 
+                               new_addr_type addr, 
+                               unsigned & shared_count);
+ private: 
+  unsigned int hit_dist[28];
+};
 #endif

@@ -1312,7 +1312,9 @@ void gpgpu_sim::gpu_print_stat() {
 
   // shader_print_l1_miss_stat( stdout );
   shader_print_cache_stats(stdout);
-
+  print_hit_table(stdout);
+  // clear the mem access table
+  access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2063,3 +2065,85 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
+
+void gpgpu_sim::inc_hit_dist(address_type pc, 
+                            new_addr_type addr, 
+                            unsigned this_core_idx) {
+  if (access_table.find(pc) == access_table.end()){
+    access_table[pc] = new std::map<new_addr_type, access_entry *>();
+  }
+  auto cur_table_entry = access_table[pc];
+  if (cur_table_entry->find(addr) == cur_table_entry->end()) {
+    (*cur_table_entry)[addr] = new access_entry();
+  }
+  access_entry * cur_access_entry = (*cur_table_entry)[addr];
+  cur_access_entry->inc_hit_dist(this_core_idx);
+}
+
+void gpgpu_sim::print_hit_table(FILE *fout){
+  fprintf(fout, "\n========= memory access stats =========\n");
+  auto it_pc = access_table.begin();
+  for (it_pc = access_table.begin(); it_pc != access_table.end(); it_pc ++) {
+    unsigned long long access_core_dist[29] = {0};
+    unsigned long long total_line_count = 0;
+    unsigned long long shared_line_count = 0;
+    unsigned long long int total_n_access = 0;
+    unsigned long long int total_sharing_cores = 0;
+    address_type cur_pc = it_pc->first;
+    fprintf(fout, "pc =  %5u \n", cur_pc);
+    auto * cur_table_entry = it_pc->second;
+    auto it = cur_table_entry->begin();
+    for (it = cur_table_entry->begin(); it != cur_table_entry->end();
+                it ++) {
+      total_line_count ++;
+      access_entry * access_info = NULL;
+      new_addr_type addr;
+      addr = it->first;
+      access_info = it->second;
+      assert(access_info != NULL);
+      unsigned shared_count = 0;
+      unsigned long long int n_access = access_info->print(fout, 
+                                                            addr, shared_count);
+      if (shared_count > 1) {
+        shared_line_count ++;
+        total_n_access += n_access;
+        total_sharing_cores += shared_count;
+      }
+      access_core_dist[shared_count] ++;
+    }
+    for (int i = 0; i < 29; i ++) { 
+      fprintf(fout, "%d: %5llu,", i, access_core_dist[i]);
+    }
+    fprintf(fout, "\n");
+    fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
+                  "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n"
+                  , total_line_count, shared_line_count, 
+                  (double) shared_line_count / (double) total_line_count,
+                  (double) total_n_access / (double) total_sharing_cores); 
+  }
+    
+}
+
+access_entry::access_entry() {
+  for (int i = 0; i < 28; i ++){
+    hit_dist[i] = 0;
+  }
+}
+
+void access_entry::inc_hit_dist(unsigned core_idx){
+  hit_dist[core_idx] ++;
+}
+
+unsigned long long int access_entry::print(FILE * fout, 
+                           new_addr_type addr, 
+                           unsigned & shared_count) {
+  //fprintf(fout, "addr = %7llu,", addr);
+  unsigned long long int total_access_count = 0;
+  shared_count = 0;
+  for (int i = 0; i < 28; i ++) { 
+    if (hit_dist[i] > 0) shared_count ++;
+    total_access_count += hit_dist[i];
+  }
+  //fprintf(fout, "sharing_core: %2u\n", shared_count);
+  return total_access_count;
+}

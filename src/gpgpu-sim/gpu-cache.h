@@ -827,7 +827,9 @@ class l2_cache_config : public cache_config {
   l2_cache_config() : cache_config() {}
   void init(linear_to_raw_address_translation *address_mapping);
   virtual unsigned set_index(new_addr_type addr) const;
-
+  new_addr_type block_addr(new_addr_type addr) {
+    return m_config.block_addr(addr);
+  }
  private:
   linear_to_raw_address_translation *m_address_mapping;
 };

@@ -196,6 +196,9 @@ class memory_sub_partition {
     m_L2cache->force_tag_access(addr, m_memcpy_cycle_offset + time, mask);
     m_memcpy_cycle_offset += 1;
   }
+  new_addr_type block_addr(new_addr_type addr) {
+    return m_L2cache->block_addr(addr); 
+  }
 
  private:
   // data
