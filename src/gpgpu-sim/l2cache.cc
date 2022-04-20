@@ -461,29 +461,34 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         // only promote current memory request if l2->icnt queue have space and 
         // the request is a global read access
         if (!m_L2_icnt_queue->full() && mf->get_access_type() == GLOBAL_ACC_R) {
-            assert(!mf->is_write());
-            const mem_access_t *ma = new mem_access_t(
-                PROMO_ACC, mf->get_addr(), mf->get_data_size(),
-                mf->is_write(), mf->get_access_warp_mask(),
-                mf->get_access_byte_mask(), 
-                std::bitset<SECTOR_CHUNCK_SIZE>().set(), m_gpu->gpgpu_ctx);
-            // randomly select a core to promote to 
-            unsigned promote_tpc = rng() % m_gpu->getShaderCoreConfig()->n_simt_clusters;
-            // the randomly selected promotion target is the same as the
-            // original response target, re-generate
-            while (promote_tpc == mf->get_tpc())
-              promote_tpc = rng() % m_gpu->getShaderCoreConfig()->n_simt_clusters;
-            // since we are dealing with architecture with one core per cluster
-            // core_id (sid) == cluster_id (tpc)
-            mem_fetch *n_mf = new mem_fetch(*ma, NULL, mf->get_ctrl_size(), 
-                              NULL, promote_tpc,
-                                            promote_tpc, mf->get_mem_config(),
-                        m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle, mf);
-            n_mf->set_reply();
-            n_mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
-                            m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-            m_L2_icnt_queue->push(n_mf);
-            m_request_tracker.insert(n_mf);
+            double promote_prob = m_gpu->get_load_remote_rate(mf->get_pc());
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            if (dist(rng) < promote_prob){
+              assert(!mf->is_write());
+              const mem_access_t *ma = new mem_access_t(
+                  PROMO_ACC, mf->get_addr(), mf->get_data_size(),
+                  mf->is_write(), mf->get_access_warp_mask(),
+                  mf->get_access_byte_mask(), 
+                  std::bitset<SECTOR_CHUNCK_SIZE>().set(), m_gpu->gpgpu_ctx);
+              // randomly select a core to promote to 
+              unsigned promote_tpc = rng() % 
+                                     m_gpu->getShaderCoreConfig()->n_simt_clusters;
+              // the randomly selected promotion target is the same as the
+              // original response target, re-generate
+              while (promote_tpc == mf->get_tpc())
+                promote_tpc = rng() % m_gpu->getShaderCoreConfig()->n_simt_clusters;
+              // since we are dealing with architecture with one core per cluster
+              // core_id (sid) == cluster_id (tpc)
+              mem_fetch *n_mf = new mem_fetch(*ma, NULL, mf->get_ctrl_size(), 
+                                NULL, promote_tpc,
+                                              promote_tpc, mf->get_mem_config(),
+                          m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle, mf);
+              n_mf->set_reply();
+              n_mf->set_status(IN_PARTITION_L2_TO_ICNT_QUEUE,
+                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+              m_L2_icnt_queue->push(n_mf);
+              m_request_tracker.insert(n_mf);
+            }
         }
       } else {
         if (m_config->m_L2_config.m_write_alloc_policy == FETCH_ON_WRITE) {

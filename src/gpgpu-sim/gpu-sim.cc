@@ -2073,11 +2073,24 @@ void gpgpu_sim::inc_hit_dist(address_type pc,
     access_table[pc] = new std::map<new_addr_type, access_entry *>();
   }
   auto cur_table_entry = access_table[pc];
+  bool first_access = false;
   if (cur_table_entry->find(addr) == cur_table_entry->end()) {
     (*cur_table_entry)[addr] = new access_entry();
+    first_access = true;
   }
   access_entry * cur_access_entry = (*cur_table_entry)[addr];
-  cur_access_entry->inc_hit_dist(this_core_idx);
+  if (cur_access_entry->inc_hit_dist(this_core_idx, first_access)) {
+    if (n_remote_access_table.find(pc) == n_remote_access_table.end()) {
+      n_remote_access_table[pc] = 1;
+    }  
+    else {
+      n_remote_access_table[pc] ++;
+    }
+  }
+}
+
+double gpgpu_sim::get_load_remote_rate(address_type pc) {
+  return (double)n_remote_access_table[pc] / (double)access_table[pc]->size();
 }
 
 void gpgpu_sim::print_hit_table(FILE *fout){
@@ -2085,8 +2098,6 @@ void gpgpu_sim::print_hit_table(FILE *fout){
   auto it_pc = access_table.begin();
   for (it_pc = access_table.begin(); it_pc != access_table.end(); it_pc ++) {
     unsigned long long access_core_dist[29] = {0};
-    unsigned long long total_line_count = 0;
-    unsigned long long shared_line_count = 0;
     unsigned long long int total_n_access = 0;
     unsigned long long int total_sharing_cores = 0;
     address_type cur_pc = it_pc->first;
@@ -2095,7 +2106,6 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     auto it = cur_table_entry->begin();
     for (it = cur_table_entry->begin(); it != cur_table_entry->end();
                 it ++) {
-      total_line_count ++;
       access_entry * access_info = NULL;
       new_addr_type addr;
       addr = it->first;
@@ -2105,9 +2115,12 @@ void gpgpu_sim::print_hit_table(FILE *fout){
       unsigned long long int n_access = access_info->print(fout, 
                                                             addr, shared_count);
       if (shared_count > 1) {
-        shared_line_count ++;
+        assert(access_info->get_is_shared());
         total_n_access += n_access;
         total_sharing_cores += shared_count;
+      }
+      else {
+        assert(!access_info->get_is_shared());
       }
       access_core_dist[shared_count] ++;
     }
@@ -2117,8 +2130,9 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     fprintf(fout, "\n");
     fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
                   "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n"
-                  , total_line_count, shared_line_count, 
-                  (double) shared_line_count / (double) total_line_count,
+                  , access_table[cur_pc]->size(), 
+                  n_remote_access_table[cur_pc], 
+                  get_load_remote_rate(cur_pc),
                   (double) total_n_access / (double) total_sharing_cores); 
   }
     
@@ -2128,10 +2142,20 @@ access_entry::access_entry() {
   for (int i = 0; i < 28; i ++){
     hit_dist[i] = 0;
   }
+  shared = false;
 }
 
-void access_entry::inc_hit_dist(unsigned core_idx){
+bool access_entry::inc_hit_dist(unsigned core_idx, bool first_access){
+  // if this is the first time this line is brought into the l2cache, 
+  // it is impossible for us to determine whether it is shared or not.
+  if (!first_access && !shared && hit_dist[core_idx] == 0){
+    shared = true;
+    hit_dist[core_idx] ++;
+    // if the line status flip from false to true, return true;
+    return true;
+  }
   hit_dist[core_idx] ++;
+  return false;
 }
 
 unsigned long long int access_entry::print(FILE * fout, 
