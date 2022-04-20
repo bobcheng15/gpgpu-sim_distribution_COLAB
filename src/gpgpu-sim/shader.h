@@ -54,6 +54,7 @@
 #include "stack.h"
 #include "stats.h"
 #include "traffic_breakdown.h"
+#include <random>
 
 #define NO_OP_FLAG 0xFF
 
@@ -1265,6 +1266,8 @@ class ldst_unit : public pipelined_simd_unit {
   void flush();
   void invalidate();
   void writeback();
+  enum cache_request_status probe_l1_cache(new_addr_type addr, mem_fetch *mf);
+  void install_promoted_line(new_addr_type addr, mem_fetch *mf, unsigned time);
 
   // accessors
   virtual unsigned clock_multiplier() const;
@@ -1301,6 +1304,7 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1315,6 +1319,7 @@ class ldst_unit : public pipelined_simd_unit {
             Scoreboard *scoreboard, const shader_core_config *config,
             const memory_config *mem_config, shader_core_stats *stats,
             unsigned sid, unsigned tpc);
+  void promote(mem_fetch *mf, unsigned time); 
 
  protected:
   bool shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
@@ -1345,6 +1350,8 @@ class ldst_unit : public pipelined_simd_unit {
   tex_cache *m_L1T;        // texture cache
   read_only_cache *m_L1C;  // constant cache
   l1_cache *m_L1D;         // data cache
+  promotion_cache *m_L1P;   // promotion cache
+  int * promote_core_idx_list;
   std::map<unsigned /*warp_id*/,
            std::map<unsigned /*regnum*/, unsigned /*count*/>>
       m_pending_writes;
@@ -1368,6 +1375,7 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
+  std::default_random_engine rng;
 };
 
 enum pipeline_stage_name_t {
@@ -1458,6 +1466,7 @@ class shader_core_config : public core_config {
     m_L1T_config.init(m_L1T_config.m_config_string, FuncCachePreferNone);
     m_L1C_config.init(m_L1C_config.m_config_string, FuncCachePreferNone);
     m_L1D_config.init(m_L1D_config.m_config_string, FuncCachePreferNone);
+    m_L1P_config.init(m_L1P_config.m_config_string, FuncCachePreferNone);
     gpgpu_cache_texl1_linesize = m_L1T_config.get_line_sz();
     gpgpu_cache_constl1_linesize = m_L1C_config.get_line_sz();
     m_valid = true;
@@ -1519,6 +1528,8 @@ class shader_core_config : public core_config {
   mutable cache_config m_L1I_config;
   mutable cache_config m_L1T_config;
   mutable cache_config m_L1C_config;
+  mutable cache_config m_L1P_config;
+  unsigned n_promotion_target;
   mutable l1d_cache_config m_L1D_config;
 
   bool gpgpu_dwf_reg_bankconflict;
@@ -1906,6 +1917,8 @@ class shader_core_ctx : public core_t {
   bool ldst_unit_response_buffer_full() const;
   unsigned get_not_completed() const { return m_not_completed; }
   unsigned get_n_active_cta() const { return m_n_active_cta; }
+  simt_core_cluster * get_cluster() const { return m_cluster; }
+  ldst_unit * get_ldst_unit() const { return m_ldst_unit; }
   unsigned isactive() const {
     if (m_n_active_cta > 0)
       return 1;
@@ -1949,6 +1962,7 @@ class shader_core_ctx : public core_t {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
 
   void get_icnt_power_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
 
@@ -2340,6 +2354,9 @@ class simt_core_cluster {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  void get_L1P_sub_stats(struct cache_sub_stats &css) const;
+
+  shader_core_ctx * get_core(int idx) const { return m_core[idx]; }
 
   void get_icnt_stats(long &n_simt_to_mem, long &n_mem_to_simt) const;
   float get_current_occupancy(unsigned long long &active,

@@ -350,6 +350,7 @@ enum cache_request_status tag_array::access(new_addr_type addr, unsigned time,
       m_pending_hit++;
     case HIT:
       m_lines[idx]->set_last_access_time(time, mf->get_access_sector_mask());
+      m_lines[idx]->set_been_read();
       break;
     case MISS:
       m_miss++;
@@ -608,6 +609,8 @@ cache_stats::cache_stats() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
+  m_n_promoted_line = 0;
+  m_n_promoted_line_used = 0;
 }
 
 void cache_stats::clear() {
@@ -621,6 +624,8 @@ void cache_stats::clear() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
+  m_n_promoted_line = 0;
+  m_n_promoted_line_used = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -656,6 +661,14 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
     assert(0 && "Unknown cache access type or access fail");
 
   m_fail_stats[access_type][fail_outcome]++;
+}
+
+void cache_stats::inc_n_promoted_line(){
+  m_n_promoted_line ++;
+}
+
+void cache_stats::inc_n_promoted_line_used(){
+  m_n_promoted_line_used ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -733,6 +746,10 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_data_port_busy_cycles + cs.m_cache_data_port_busy_cycles;
   ret.m_cache_fill_port_busy_cycles =
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
+  ret.m_n_promoted_line = 
+      m_n_promoted_line + cs.m_n_promoted_line;
+  ret.m_n_promoted_line_used = 
+      m_n_promoted_line_used + cs.m_n_promoted_line_used;
   return ret;
 }
 
@@ -861,7 +878,8 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.port_available_cycles = m_cache_port_available_cycles;
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
-
+  t_css.n_promoted_line = m_n_promoted_line;
+  t_css.n_promoted_line_used = m_n_promoted_line_used;
   css = t_css;
 }
 
@@ -1034,7 +1052,7 @@ void baseline_cache::cycle() {
 
 /// Interface for response from lower memory level (model bandwidth restictions
 /// in caller)
-void baseline_cache::fill(mem_fetch *mf, unsigned time) {
+mem_fetch * baseline_cache::fill(mem_fetch *mf, unsigned time) {
   if (m_config.m_mshr_type == SECTOR_ASSOC) {
     assert(mf->get_original_mf());
     extra_mf_fields_lookup::iterator e =
@@ -1045,7 +1063,7 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
     if (e->second.pending_read > 0) {
       // wait for the other requests to come back
       delete mf;
-      return;
+      return NULL;
     } else {
       mem_fetch *temp = mf;
       mf = mf->get_original_mf();
@@ -1076,6 +1094,7 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
   }
   m_extra_mf_fields.erase(mf);
   m_bandwidth_management.use_fill_port(mf);
+  return mf;
 }
 
 /// Checks if mf is waiting to be filled by lower memory level
@@ -1155,6 +1174,15 @@ void baseline_cache::send_read_request(new_addr_type addr,
     m_stats.inc_fail_stats(mf->get_access_type(), MSHR_ENRTY_FAIL);
   else
     assert(0);
+}
+
+enum cache_request_status baseline_cache::probe(new_addr_type addr, mem_fetch *mf){
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  enum cache_request_status probe_status =
+      m_tag_array->probe(block_addr, cache_index, mf, true);
+  return probe_status;
 }
 
 /// Sends write request to lower level memory (write or writeback)
@@ -1836,5 +1864,45 @@ void tex_cache::display_state(FILE *fp) const {
     fprintf(fp, "%s:          ", f.m_miss ? "miss" : "hit ");
     f.m_request->print(fp, false);
   }
+}
+
+enum cache_request_status promotion_cache::access(new_addr_type addr, 
+                                                  mem_fetch *mf, 
+                                                  unsigned time) {
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  assert(m_config.m_write_policy == READ_ONLY);
+  assert(!mf->get_is_write());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  // check whether the desired cache line is in the cache
+  enum cache_request_status status =
+      m_tag_array->probe(block_addr, cache_index, mf);
+  enum cache_request_status cache_status = MISS;
+  // the access result of a perfect promotion cache is either HIT or MISS
+  assert(status == HIT || status == MISS);
+  if (status == HIT) {
+    // if this block have never been read before
+    if (m_tag_array->get_block_been_read(cache_index) == false){
+        m_stats.inc_n_promoted_line_used();
+    }
+    cache_status = m_tag_array->access(block_addr, time, cache_index,
+                                       mf);  // update LRU state
+  } else {
+    // do nothing if the access misses the promotion cache.
+  }
+  /*
+  m_stats.inc_stats(mf->get_access_type(),
+                    m_stats.select_stats_status(status, cache_status));
+  m_stats.inc_stats_pw(mf->get_access_type(),
+                       m_stats.select_stats_status(status, cache_status));
+  */
+  assert(cache_status == HIT || cache_status == MISS);
+  return cache_status;
+}
+
+void promotion_cache::install_promoted_line(new_addr_type addr, mem_fetch *mf, 
+                                            unsigned time){
+  m_tag_array->fill(addr, time, mf);
+  m_stats.inc_n_promoted_line();
 }
 /******************************************************************************************************************************************/
