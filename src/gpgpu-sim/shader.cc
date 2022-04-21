@@ -2708,8 +2708,14 @@ void ldst_unit::cycle() {
                                 m_core->get_gpu()->gpu_tot_sim_cycle);
             if (filled_mf != NULL){
               if (filled_mf->get_access_type() == GLOBAL_ACC_R){
-                promote(filled_mf, m_core->get_gpu()->gpu_sim_cycle +
-                  m_core->get_gpu()->gpu_tot_sim_cycle);
+                double promote_prob = 
+                    m_core->get_gpu()->
+                        get_load_remote_rate(filled_mf->get_pc());
+                std::uniform_real_distribution<double> dist(0.0, 1.0);
+                if (dist(rng) < promote_prob) {
+                  promote(filled_mf, m_core->get_gpu()->gpu_sim_cycle +
+                    m_core->get_gpu()->gpu_tot_sim_cycle);
+                }
               }
             }
             m_response_fifo.pop_front();

@@ -196,6 +196,10 @@ class memory_sub_partition {
     m_memcpy_cycle_offset += 1;
   }
 
+  new_addr_type block_addr(new_addr_type addr) {
+    return m_L2cache->block_addr(addr);
+  }
+
  private:
   // data
   unsigned m_id;  //< the global sub partition ID
