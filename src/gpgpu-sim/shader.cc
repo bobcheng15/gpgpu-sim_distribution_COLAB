@@ -1718,9 +1718,6 @@ void ldst_unit::get_L1C_sub_stats(struct cache_sub_stats &css) const {
 void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   if (m_L1T) m_L1T->get_sub_stats(css);
 }
-void ldst_unit::get_L1P_sub_stats(struct cache_sub_stats &css) const {
-  if (m_L1P) m_L1P->get_sub_stats(css);
-}
 
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 #if 0
@@ -1931,18 +1928,19 @@ void ldst_unit::L1_latency_queue_cycle() {
     if ((l1_latency_queue[j][0]) != NULL) {
       mem_fetch *mf_next = l1_latency_queue[j][0];
       // access the promotion cache
-      enum cache_request_status p_cache_status = MISS;
-      // only consult the p cache for global loads
+      enum cache_request_status s_cache_status = MISS;
+      // only consult the  cache for global loads
       if (mf_next->get_access_type() == GLOBAL_ACC_R){
-         p_cache_status = m_L1P->access(mf_next->get_addr(), mf_next, 
+         s_cache_status = m_core->get_cluster()->get_shared_cache()->access(
+                                        mf_next->get_addr(), mf_next, 
                                         m_core->get_gpu()->gpu_sim_cycle +
                                         m_core->get_gpu()->gpu_tot_sim_cycle);
       }
-      assert(p_cache_status == HIT || p_cache_status == MISS);
-      // if the request hit in the p cache, feed the data from the p cache to
+      assert(s_cache_status == HIT || s_cache_status == MISS);
+      // if the request hit in the s cache, feed the data from the s cache to
       // the desination register. If all pending writes on a register are
       // satified, release the scoreboard entry of the register.
-      if (p_cache_status == HIT){
+      if (s_cache_status == HIT){
         l1_latency_queue[j][0] = NULL;
         for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r ++){
           if (mf_next->get_inst().out[r] > 0) {
@@ -1962,7 +1960,7 @@ void ldst_unit::L1_latency_queue_cycle() {
         }
         delete mf_next;
       }
-      // if the request miss the p cache (either because it being a write or
+      // if the request miss the s cache (either because it being a write or
       // a load missing the p cache), handle the memory request in the normal
       // l1 data cache.
       else {
@@ -2156,7 +2154,7 @@ void ldst_unit::flush() {
 void ldst_unit::invalidate() {
   // Flush L1D cache
   m_L1D->invalidate();
-  m_L1P->invalidate();
+  m_core->get_cluster()->get_shared_cache()->invalidate();
 }
 
 simd_function_unit::simd_function_unit(const shader_core_config *config) {
@@ -2431,22 +2429,6 @@ ldst_unit::ldst_unit(mem_fetch_interface *icnt,
       l1_latency_queue[j].resize(m_config->m_L1D_config.l1_latency,
                                  (mem_fetch *)NULL);
   }
-  if (!m_config->m_L1P_config.disabled()) {
-    char L1P_name[STRSIZE];
-    snprintf(L1P_name, STRSIZE, "L1P_%03d", m_sid);
-    m_L1P = new promotion_cache(L1P_name, m_config->m_L1P_config, m_sid,
-                                get_shader_constant_cache_id(), m_icnt, 
-                                IN_L1C_MISS_QUEUE);
-  }
-  promote_core_idx_list = new int[m_config->n_simt_clusters - 1];
-  // create a vector that hold all the possible promotion candidate
-  int promote_core_sid = 0;
-  for (int i = 0; i < m_config->n_simt_clusters - 1; i ++){
-    if (promote_core_sid == sid) promote_core_sid ++;
-    promote_core_idx_list[i] = promote_core_sid;
-    promote_core_sid ++;
-  }
-  assert(m_L1P != NULL);
   m_name = "MEM ";
   // seeding the rng
   rng.seed(sid);
@@ -2589,33 +2571,6 @@ void ldst_unit::writeback() {
   }
 }
 
-void ldst_unit::promote(mem_fetch * mf, unsigned time){
-  // promote the incoming cache line to the promotion cache of other SM.
-  // iterate through all the predefined oracle promotion target (t-5).
-  // randomly shuffle the candidate list
-  shuffle(promote_core_idx_list, 
-          promote_core_idx_list +m_config->n_simt_clusters - 1, rng);
-  for (int i = 0; i < m_config->n_promotion_target; i ++){
-    shader_core_ctx * target_core =
-    m_core->get_cluster()->get_gpu()->get_cluster(promote_core_idx_list[i])->get_core(0);
-    ldst_unit * target_ldst_unit = target_core->get_ldst_unit();
-    // first check whether the promotion target have the promote line or not
-    enum cache_request_status probe_result =
-    target_ldst_unit->probe_l1_cache(mf->get_addr(), mf); 
-    // if the target core alreay have or is going to have the promoting line,
-    // do not promote. Otherwise, promote the line to the target core's p
-    // cache.
-    if (probe_result != HIT && probe_result != HIT_RESERVED){
-        target_ldst_unit->install_promoted_line(mf->get_addr(), mf, time); 
-    }
-  }
-}
-
-void ldst_unit::install_promoted_line(new_addr_type addr, mem_fetch *mf,
-unsigned time){
-  m_L1P->install_promoted_line(addr, mf, time);
-}
-
 enum cache_request_status ldst_unit::probe_l1_cache(new_addr_type addr, mem_fetch *mf){
   return m_L1D->probe(addr, mf);
 }
@@ -2702,23 +2657,31 @@ void ldst_unit::cycle() {
             m_next_global = mf;
           }
         } else {
-          if (m_L1D->fill_port_free()) {
-            mem_fetch * filled_mf = m_L1D->fill(mf, 
-                                m_core->get_gpu()->gpu_sim_cycle +
-                                m_core->get_gpu()->gpu_tot_sim_cycle);
-            if (filled_mf != NULL){
-              if (filled_mf->get_access_type() == GLOBAL_ACC_R){
-                double promote_prob = 
-                    m_core->get_gpu()->
-                        get_load_remote_rate(filled_mf->get_pc());
-                std::uniform_real_distribution<double> dist(0.0, 1.0);
-                if (dist(rng) < promote_prob) {
-                  promote(filled_mf, m_core->get_gpu()->gpu_sim_cycle +
-                    m_core->get_gpu()->gpu_tot_sim_cycle);
-                }
-              }
-            }
+          double shared_prob = m_core->get_gpu()
+                                ->get_load_remote_rate(mf->get_pc());
+          std::uniform_real_distribution<double> dist(0.0, 1.0);
+          // according to the pc lut, this is very likely a shared line,
+          // install it into the per cluster shared cache.
+          if (dist(rng) < shared_prob) {
+            shared_cache * s_cache = m_core->get_cluster()->get_shared_cache();
+            cache_request_status s_cache_probe = s_cache->probe(mf->get_addr(),
+                                                                mf);
+            if (s_cache_probe == MISS)
+              s_cache->install_shared_line(mf->get_addr(), mf, 
+                                         m_core->get_gpu()->gpu_sim_cycle + 
+                                         m_core->get_gpu()->gpu_tot_sim_cycle);
+            
+            m_L1D->mark_mshr_entry_ready(mf, m_core->get_gpu()->gpu_sim_cycle +
+                                         m_core->get_gpu()->gpu_tot_sim_cycle);
             m_response_fifo.pop_front();
+          } else {
+            // unlikely to be a shared line, install it into the per core
+            // private l1 cache if the fill port of the l1 cache is available.
+            if (m_L1D->fill_port_free()) {
+              m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
+                          m_core->get_gpu()->gpu_tot_sim_cycle);
+              m_response_fifo.pop_front();
+            }                                          
           }
         }
       }
@@ -3001,29 +2964,29 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.res_fails);
   }
   
-  // L1P
-  if (!m_shader_config->m_L1P_config.disabled()) {
+  // L1S
+  if (!m_shader_config->m_L1S_config.disabled()) {
     total_css.clear();
     css.clear();
-    fprintf(fout, "L1P_cache:\n");
+    fprintf(fout, "L1S_cache:\n");
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i) {
-      m_cluster[i]->get_L1P_sub_stats(css);
+      m_cluster[i]->get_L1S_sub_stats(css);
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Promoted_lines = %llu, Lines_used = %llu, "
               "Use_rate%.3lf\n",
-              i, css.n_promoted_line, css.n_promoted_line_used,
-              (double)css.n_promoted_line_used / (double)css.n_promoted_line);
+              i, css.n_shared_line, css.n_shared_line_used,
+              (double)css.n_shared_line_used / (double)css.n_shared_line);
 
       total_css += css;
     }
-    fprintf(fout, "L1P_total_promoted_lines = %llu\n", 
-            total_css.n_promoted_line);
-    fprintf(fout, "L1P_total_promoted_lines_used = %llu\n",
-            total_css.n_promoted_line_used);
-    if (total_css.n_promoted_line != 0){
-        fprintf(fout, "L1P_Line_utilization_rate = %.3lf\n",
-                (double)total_css.n_promoted_line_used /
-                (double)total_css.n_promoted_line);
+    fprintf(fout, "L1S_total_promoted_lines = %llu\n", 
+            total_css.n_shared_line);
+    fprintf(fout, "L1S_total_promoted_lines_used = %llu\n",
+            total_css.n_shared_line_used);
+    if (total_css.n_shared_line != 0){
+        fprintf(fout, "L1S_Line_utilization_rate = %.3lf\n",
+                (double)total_css.n_shared_line_used /
+                (double)total_css.n_shared_line);
     }
   }
 }
@@ -3901,9 +3864,6 @@ void shader_core_ctx::get_L1C_sub_stats(struct cache_sub_stats &css) const {
 void shader_core_ctx::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   m_ldst_unit->get_L1T_sub_stats(css);
 }
-void shader_core_ctx::get_L1P_sub_stats(struct cache_sub_stats &css) const {
-  m_ldst_unit->get_L1P_sub_stats(css);
-}
 
 void shader_core_ctx::get_icnt_power_stats(long &n_simt_to_mem,
                                            long &n_mem_to_simt) const {
@@ -4298,6 +4258,14 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_stats = stats;
   m_memory_stats = mstats;
   m_mem_config = mem_config;
+  // instantiate the per cluster shared cache here
+  if (!m_config->m_L1S_config.disabled()) {
+    char L1S_name[STRSIZE];
+    snprintf(L1S_name, STRSIZE, "L1S_%03d", m_cluster_id);
+    m_L1S = new shared_cache(L1S_name, m_config->m_L1S_config, m_cluster_id,
+                                get_shader_constant_cache_id(), NULL, 
+                                IN_L1C_MISS_QUEUE);
+  }
 }
 
 void simt_core_cluster::core_cycle() {
@@ -4608,15 +4576,9 @@ void simt_core_cluster::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   }
   css = total_css;
 }
-void simt_core_cluster::get_L1P_sub_stats(struct cache_sub_stats &css) const {
-  struct cache_sub_stats temp_css;
+void simt_core_cluster::get_L1S_sub_stats(struct cache_sub_stats &css) const {
   struct cache_sub_stats total_css;
-  temp_css.clear();
-  total_css.clear();
-  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i) {
-    m_core[i]->get_L1P_sub_stats(temp_css);
-    total_css += temp_css;
-  }
+  if (m_L1S) m_L1S->get_sub_stats(total_css);
   css = total_css;
 }
 

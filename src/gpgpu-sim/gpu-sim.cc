@@ -238,15 +238,11 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       "merge>,<mq>} ",
       "64:64:2,L:R:f:N,A:2:32,4");
   option_parser_register(
-      opp, "-gpgpu_promo_cache:l1", OPT_CSTR, &m_L1P_config.m_config_string,
-      "per-shader L1 promotion memory cache (READ-ONLY) config "
+      opp, "-gpgpu_shared_cache:l1", OPT_CSTR, &m_L1S_config.m_config_string,
+      "per-cluster L1 shared memory cache (READ-ONLY) config "
       " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<"
       "merge>,<mq>} ",
       "64:64:2,L:R:f:N,A:2:32,4");
-  option_parser_register(
-      opp, "-gpgpu_n_promotion_target", OPT_INT32, &n_promotion_target,
-      "the number of cores a replicated line is promoted to ",
-      "5");
   option_parser_register(opp, "-gpgpu_cache:il1", OPT_CSTR,
                          &m_L1I_config.m_config_string,
                          "shader L1 instruction cache config "

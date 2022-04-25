@@ -98,7 +98,6 @@ unsigned cache_config::hash_function(new_addr_type addr, unsigned m_nset,
         upper_xor |= (addr & 0x80000) >> 15;  // Bit 19
 
         set_index = (lower_xor ^ upper_xor);
-
         // 48KB cache prepends the set_index with bit 12
         if (m_nset == 64) set_index |= (addr & 0x1000) >> 7;
 
@@ -609,8 +608,8 @@ cache_stats::cache_stats() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
-  m_n_promoted_line = 0;
-  m_n_promoted_line_used = 0;
+  m_n_shared_line = 0;
+  m_n_shared_line_used = 0;
 }
 
 void cache_stats::clear() {
@@ -624,8 +623,8 @@ void cache_stats::clear() {
   m_cache_port_available_cycles = 0;
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
-  m_n_promoted_line = 0;
-  m_n_promoted_line_used = 0;
+  m_n_shared_line = 0;
+  m_n_shared_line_used = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -663,12 +662,12 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
   m_fail_stats[access_type][fail_outcome]++;
 }
 
-void cache_stats::inc_n_promoted_line(){
-  m_n_promoted_line ++;
+void cache_stats::inc_n_shared_line(){
+  m_n_shared_line ++;
 }
 
-void cache_stats::inc_n_promoted_line_used(){
-  m_n_promoted_line_used ++;
+void cache_stats::inc_n_shared_line_used(){
+  m_n_shared_line_used ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -746,10 +745,10 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_data_port_busy_cycles + cs.m_cache_data_port_busy_cycles;
   ret.m_cache_fill_port_busy_cycles =
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
-  ret.m_n_promoted_line = 
-      m_n_promoted_line + cs.m_n_promoted_line;
-  ret.m_n_promoted_line_used = 
-      m_n_promoted_line_used + cs.m_n_promoted_line_used;
+  ret.m_n_shared_line = 
+      m_n_shared_line + cs.m_n_shared_line;
+  ret.m_n_shared_line_used = 
+      m_n_shared_line_used + cs.m_n_shared_line_used;
   return ret;
 }
 
@@ -878,8 +877,8 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.port_available_cycles = m_cache_port_available_cycles;
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
-  t_css.n_promoted_line = m_n_promoted_line;
-  t_css.n_promoted_line_used = m_n_promoted_line_used;
+  t_css.n_shared_line = m_n_shared_line;
+  t_css.n_shared_line_used = m_n_shared_line_used;
   css = t_css;
 }
 
@@ -1095,6 +1094,36 @@ mem_fetch * baseline_cache::fill(mem_fetch *mf, unsigned time) {
   m_extra_mf_fields.erase(mf);
   m_bandwidth_management.use_fill_port(mf);
   return mf;
+}
+
+void baseline_cache::mark_mshr_entry_ready(mem_fetch *mf, unsigned time){
+  extra_mf_fields_lookup::iterator e = m_extra_mf_fields.find(mf);
+  assert(e != m_extra_mf_fields.end());
+  assert(e->second.m_valid);
+  mf->set_data_size(e->second.m_data_size);
+  mf->set_addr(e->second.m_addr);
+  if (m_config.m_alloc_policy == ON_MISS)
+    m_tag_array->fill(e->second.m_cache_index, time, mf);
+  else if (m_config.m_alloc_policy == ON_FILL) {
+    m_tag_array->fill(e->second.m_block_addr, time, mf);
+    if (m_config.is_streaming()) m_tag_array->remove_pending_line(mf);
+  } else
+    abort();
+  bool has_atomic = false;
+  m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
+  if (has_atomic) {
+    assert(m_config.m_alloc_policy == ON_MISS);
+    cache_block_t *block = m_tag_array->get_block(e->second.m_cache_index);
+    block->set_status(MODIFIED,
+                      mf->get_access_sector_mask());  // mark line as dirty for
+                                                      // atomic operation
+  }
+  // this line is already in the shared cache, invalidate the line in
+  // the private l1 cache.
+  cache_block_t *block = m_tag_array->get_block(e->second.m_cache_index);
+  block->set_status(INVALID, mf->get_access_sector_mask());
+  m_extra_mf_fields.erase(mf);
+  m_bandwidth_management.use_fill_port(mf);
 }
 
 /// Checks if mf is waiting to be filled by lower memory level
@@ -1866,7 +1895,7 @@ void tex_cache::display_state(FILE *fp) const {
   }
 }
 
-enum cache_request_status promotion_cache::access(new_addr_type addr, 
+enum cache_request_status shared_cache::access(new_addr_type addr, 
                                                   mem_fetch *mf, 
                                                   unsigned time) {
   assert(mf->get_data_size() <= m_config.get_atom_sz());
@@ -1878,12 +1907,12 @@ enum cache_request_status promotion_cache::access(new_addr_type addr,
   enum cache_request_status status =
       m_tag_array->probe(block_addr, cache_index, mf);
   enum cache_request_status cache_status = MISS;
-  // the access result of a perfect promotion cache is either HIT or MISS
+  // the access result of a perfect shared cache is either HIT or MISS
   assert(status == HIT || status == MISS);
   if (status == HIT) {
     // if this block have never been read before
     if (m_tag_array->get_block_been_read(cache_index) == false){
-        m_stats.inc_n_promoted_line_used();
+        m_stats.inc_n_shared_line_used();
     }
     cache_status = m_tag_array->access(block_addr, time, cache_index,
                                        mf);  // update LRU state
@@ -1900,9 +1929,9 @@ enum cache_request_status promotion_cache::access(new_addr_type addr,
   return cache_status;
 }
 
-void promotion_cache::install_promoted_line(new_addr_type addr, mem_fetch *mf, 
-                                            unsigned time){
+void shared_cache::install_shared_line(new_addr_type addr, mem_fetch *mf, 
+                                       unsigned time){
   m_tag_array->fill(addr, time, mf);
-  m_stats.inc_n_promoted_line();
+  m_stats.inc_n_shared_line();
 }
 /******************************************************************************************************************************************/

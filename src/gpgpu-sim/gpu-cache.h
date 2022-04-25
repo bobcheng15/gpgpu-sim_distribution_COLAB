@@ -802,7 +802,7 @@ class cache_config {
   friend class l1_cache;
   friend class l2_cache;
   friend class memory_sub_partition;
-  friend class promotion_cache;
+  friend class shared_cache;
 };
 
 class l1d_cache_config : public cache_config {
@@ -982,8 +982,8 @@ struct cache_sub_stats {
   unsigned long long port_available_cycles;
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
-  unsigned long long n_promoted_line;
-  unsigned long long n_promoted_line_used;
+  unsigned long long n_shared_line;
+  unsigned long long n_shared_line_used;
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -994,8 +994,8 @@ struct cache_sub_stats {
     port_available_cycles = 0;
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
-    n_promoted_line = 0;
-    n_promoted_line_used = 0;
+    n_shared_line = 0;
+    n_shared_line_used = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -1008,8 +1008,8 @@ struct cache_sub_stats {
     port_available_cycles += css.port_available_cycles;
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
-    n_promoted_line += css.n_promoted_line;
-    n_promoted_line_used += css.n_promoted_line_used;
+    n_shared_line += css.n_shared_line;
+    n_shared_line_used += css.n_shared_line_used;
     return *this;
   }
 
@@ -1028,10 +1028,10 @@ struct cache_sub_stats {
         data_port_busy_cycles + cs.data_port_busy_cycles;
     ret.fill_port_busy_cycles =
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
-    ret.n_promoted_line = 
-        n_promoted_line + cs.n_promoted_line;
-    ret.n_promoted_line_used = 
-        n_promoted_line_used + cs.n_promoted_line_used;
+    ret.n_shared_line = 
+        n_shared_line + cs.n_shared_line;
+    ret.n_shared_line_used = 
+        n_shared_line_used + cs.n_shared_line_used;
     return ret;
   }
 
@@ -1109,8 +1109,8 @@ class cache_stats {
   // Increment AerialVision cache stats
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
-  void inc_n_promoted_line();
-  void inc_n_promoted_line_used();
+  void inc_n_shared_line();
+  void inc_n_shared_line_used();
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1142,8 +1142,8 @@ class cache_stats {
   // AerialVision cache stats (per-window)
   std::vector<std::vector<unsigned long long> > m_stats_pw;
   std::vector<std::vector<unsigned long long> > m_fail_stats;
-  unsigned long long m_n_promoted_line;
-  unsigned long long m_n_promoted_line_used;
+  unsigned long long m_n_shared_line;
+  unsigned long long m_n_shared_line_used;
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;
@@ -1205,6 +1205,9 @@ class baseline_cache : public cache_t {
   /// Interface for response from lower memory level (model bandwidth
   /// restictions in caller)
   mem_fetch * fill(mem_fetch *mf, unsigned time);
+  /// temprary hack used to mark mshr entry ready to be processed while the 
+  /// incoming line is installed into the shared cache
+  void mark_mshr_entry_ready(mem_fetch *mf, unsigned time);
   /// Checks if mf is waiting to be filled by lower memory level
   bool waiting_for_fill(mem_fetch *mf);
   /// Are any (accepted) accesses that had to wait for memory now ready? (does
@@ -1817,12 +1820,12 @@ class tex_cache : public cache_t {
   extra_mf_fields_lookup m_extra_mf_fields;
 };
 
-class promotion_cache : public read_only_cache {
+class shared_cache : public read_only_cache {
  public:
-  promotion_cache(const char *name, cache_config &config, int core_id,
+  shared_cache(const char *name, cache_config &config, int cluster_id,
                   int type_id, mem_fetch_interface *memport,
                   enum mem_fetch_status status)
-    : read_only_cache(name, config, core_id, type_id, memport, status){}
+    : read_only_cache(name, config, cluster_id, type_id, memport, status){}
     
     // Access function for promotion cache, the access result is either a hit or
     // a miss. On a hit, returns HIT and update the LRU information. On a miss 
@@ -1830,7 +1833,7 @@ class promotion_cache : public read_only_cache {
     virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                              unsigned time);
  
-    void install_promoted_line (new_addr_type addr, mem_fetch * mf,
+    void install_shared_line (new_addr_type addr, mem_fetch * mf,
                                 unsigned time);
 };
 #endif
