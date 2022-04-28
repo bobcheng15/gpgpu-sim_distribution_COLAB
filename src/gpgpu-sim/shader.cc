@@ -2662,15 +2662,17 @@ void ldst_unit::cycle() {
           std::uniform_real_distribution<double> dist(0.0, 1.0);
           // according to the pc lut, this is very likely a shared line,
           // install it into the per cluster shared cache.
-          if (dist(rng) < shared_prob) {
+          if (dist(rng) < shared_prob && mf->get_access_type() == GLOBAL_ACC_R) {
             shared_cache * s_cache = m_core->get_cluster()->get_shared_cache();
             cache_request_status s_cache_probe = s_cache->probe(mf->get_addr(),
                                                                 mf);
-            if (s_cache_probe == MISS)
+            assert(s_cache_probe == MISS || s_cache_probe == HIT);
+            if (s_cache_probe == MISS) {
               s_cache->install_shared_line(mf->get_addr(), mf, 
                                          m_core->get_gpu()->gpu_sim_cycle + 
                                          m_core->get_gpu()->gpu_tot_sim_cycle);
-            
+              printf("INSTALLING EXISTING LINE");
+            }
             m_L1D->mark_mshr_entry_ready(mf, m_core->get_gpu()->gpu_sim_cycle +
                                          m_core->get_gpu()->gpu_tot_sim_cycle);
             m_response_fifo.pop_front();

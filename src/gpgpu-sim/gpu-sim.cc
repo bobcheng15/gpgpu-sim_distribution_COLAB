@@ -1311,6 +1311,7 @@ void gpgpu_sim::gpu_print_stat() {
   print_hit_table(stdout);
   // clear the mem access table
   access_table.clear();
+  n_remote_access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2066,16 +2067,17 @@ void gpgpu_sim::inc_hit_dist(address_type pc,
                             new_addr_type addr, 
                             unsigned this_core_idx) {
   if (access_table.find(pc) == access_table.end()){
-    access_table[pc] = new std::map<new_addr_type, access_entry *>();
+    
+    access_table.emplace(pc, std::map<new_addr_type, access_entry>());
   }
-  auto cur_table_entry = access_table[pc];
+  std::map<new_addr_type, access_entry>& cur_table_entry = access_table[pc];
   bool first_access = false;
-  if (cur_table_entry->find(addr) == cur_table_entry->end()) {
-    (*cur_table_entry)[addr] = new access_entry();
+  if (cur_table_entry.find(addr) == cur_table_entry.end()) {
+    cur_table_entry.emplace(addr, access_entry());
     first_access = true;
   }
-  access_entry * cur_access_entry = (*cur_table_entry)[addr];
-  if (cur_access_entry->inc_hit_dist(this_core_idx, first_access)) {
+  access_entry& cur_access_entry = cur_table_entry[addr];
+  if (cur_access_entry.inc_hit_dist(this_core_idx, first_access)) {
     if (n_remote_access_table.find(pc) == n_remote_access_table.end()) {
       n_remote_access_table[pc] = 1;
     }  
@@ -2086,7 +2088,7 @@ void gpgpu_sim::inc_hit_dist(address_type pc,
 }
 
 double gpgpu_sim::get_load_remote_rate(address_type pc) {
-  return (double)n_remote_access_table[pc] / (double)access_table[pc]->size();
+  return (double)n_remote_access_table[pc] / (double)access_table[pc].size();
 }
 
 void gpgpu_sim::print_hit_table(FILE *fout){
@@ -2098,25 +2100,22 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     unsigned long long int total_sharing_cores = 0;
     address_type cur_pc = it_pc->first;
     fprintf(fout, "pc =  %5u \n", cur_pc);
-    auto * cur_table_entry = it_pc->second;
-    auto it = cur_table_entry->begin();
-    for (it = cur_table_entry->begin(); it != cur_table_entry->end();
+    std::map<new_addr_type, access_entry>& cur_table_entry = it_pc->second;
+    auto it = cur_table_entry.begin();
+    for (it = cur_table_entry.begin(); it != cur_table_entry.end();
                 it ++) {
-      access_entry * access_info = NULL;
-      new_addr_type addr;
-      addr = it->first;
-      access_info = it->second;
-      assert(access_info != NULL);
+      new_addr_type addr = it->first;
+      access_entry& access_info = it->second;
       unsigned shared_count = 0;
-      unsigned long long int n_access = access_info->print(fout, 
-                                                            addr, shared_count);
+      unsigned long long int n_access = access_info.print(fout, 
+                                                          addr, shared_count);
       if (shared_count > 1) {
-        assert(access_info->get_is_shared());
+        assert(access_info.get_is_shared());
         total_n_access += n_access;
         total_sharing_cores += shared_count;
       }
       else {
-        assert(!access_info->get_is_shared());
+        assert(!access_info.get_is_shared());
       }
       access_core_dist[shared_count] ++;
     }
@@ -2126,10 +2125,11 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     fprintf(fout, "\n");
     fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
                   "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n"
-                  , access_table[cur_pc]->size(), 
+                  , access_table[cur_pc].size(), 
                   n_remote_access_table[cur_pc], 
                   get_load_remote_rate(cur_pc),
                   (double) total_n_access / (double) total_sharing_cores); 
+    cur_table_entry.clear();
   }
     
 }
@@ -2154,6 +2154,7 @@ bool access_entry::inc_hit_dist(unsigned core_idx, bool first_access){
   return false;
 }
 
+
 unsigned long long int access_entry::print(FILE * fout, 
                            new_addr_type addr, 
                            unsigned & shared_count) {
@@ -2161,7 +2162,7 @@ unsigned long long int access_entry::print(FILE * fout,
   unsigned long long int total_access_count = 0;
   shared_count = 0;
   for (int i = 0; i < 28; i ++) { 
-    if (hit_dist[i] > 0) shared_count ++;
+    if (hit_dist[i] !=  0) shared_count ++;
     total_access_count += hit_dist[i];
   }
   //fprintf(fout, "sharing_core: %2u\n", shared_count);

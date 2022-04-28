@@ -641,7 +641,7 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
-  std::map<address_type, std::map<new_addr_type, access_entry *> *> access_table;
+  std::map<address_type, std::map<new_addr_type, access_entry>> access_table;
   std::map<address_type, unsigned long long> n_remote_access_table;
 
  public:
