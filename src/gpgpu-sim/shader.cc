@@ -2671,7 +2671,9 @@ void ldst_unit::cycle() {
               s_cache->install_shared_line(mf->get_addr(), mf, 
                                          m_core->get_gpu()->gpu_sim_cycle + 
                                          m_core->get_gpu()->gpu_tot_sim_cycle);
-              printf("INSTALLING EXISTING LINE");
+            }
+            else {
+              //s_cache->inc_install_existing_line();
             }
             m_L1D->mark_mshr_entry_ready(mf, m_core->get_gpu()->gpu_sim_cycle +
                                          m_core->get_gpu()->gpu_tot_sim_cycle);

@@ -1104,11 +1104,6 @@ void baseline_cache::mark_mshr_entry_ready(mem_fetch *mf, unsigned time){
   mf->set_addr(e->second.m_addr);
   if (m_config.m_alloc_policy == ON_MISS)
     m_tag_array->fill(e->second.m_cache_index, time, mf);
-  else if (m_config.m_alloc_policy == ON_FILL) {
-    m_tag_array->fill(e->second.m_block_addr, time, mf);
-    if (m_config.is_streaming()) m_tag_array->remove_pending_line(mf);
-  } else
-    abort();
   bool has_atomic = false;
   m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
   if (has_atomic) {
@@ -1120,8 +1115,10 @@ void baseline_cache::mark_mshr_entry_ready(mem_fetch *mf, unsigned time){
   }
   // this line is already in the shared cache, invalidate the line in
   // the private l1 cache.
-  cache_block_t *block = m_tag_array->get_block(e->second.m_cache_index);
-  block->set_status(INVALID, mf->get_access_sector_mask());
+  if (m_config.m_alloc_policy == ON_MISS) {
+    cache_block_t *block = m_tag_array->get_block(e->second.m_cache_index);
+    block->set_status(INVALID, mf->get_access_sector_mask());
+  }
   m_extra_mf_fields.erase(mf);
   m_bandwidth_management.use_fill_port(mf);
 }
