@@ -1921,6 +1921,7 @@ class shader_core_ctx : public core_t {
   }
   kernel_info_t *get_kernel() { return m_kernel; }
   unsigned get_sid() const { return m_sid; }
+  unsigned get_cid() const { return m_config->sid_to_cid(m_sid); }
 
   // used by functional simulation:
   // modifiers

@@ -349,7 +349,6 @@ enum cache_request_status tag_array::access(new_addr_type addr, unsigned time,
       m_pending_hit++;
     case HIT:
       m_lines[idx]->set_last_access_time(time, mf->get_access_sector_mask());
-      m_lines[idx]->set_been_read();
       break;
     case MISS:
       m_miss++;
@@ -610,6 +609,7 @@ cache_stats::cache_stats() {
   m_cache_fill_port_busy_cycles = 0;
   m_n_shared_line = 0;
   m_n_shared_line_used = 0;
+  m_acc_time_interval = 0;
 }
 
 void cache_stats::clear() {
@@ -625,6 +625,7 @@ void cache_stats::clear() {
   m_cache_fill_port_busy_cycles = 0;
   m_n_shared_line = 0;
   m_n_shared_line_used = 0;
+  m_acc_time_interval = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -668,6 +669,10 @@ void cache_stats::inc_n_shared_line(){
 
 void cache_stats::inc_n_shared_line_used(){
   m_n_shared_line_used ++;
+}
+
+void cache_stats::inc_acc_time_interval(unsigned long long time) {
+  m_acc_time_interval += time;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -749,6 +754,8 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_n_shared_line + cs.m_n_shared_line;
   ret.m_n_shared_line_used = 
       m_n_shared_line_used + cs.m_n_shared_line_used;
+  ret.m_acc_time_interval = 
+      m_acc_time_interval + cs.m_acc_time_interval;
   return ret;
 }
 
@@ -879,6 +886,7 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
   t_css.n_shared_line = m_n_shared_line;
   t_css.n_shared_line_used = m_n_shared_line_used;
+  t_css.acc_time_interval = m_acc_time_interval;
   css = t_css;
 }
 
@@ -1911,24 +1919,64 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
     if (m_tag_array->get_block_been_read(cache_index) == false){
         m_stats.inc_n_shared_line_used();
     }
+    // log the time interval between current access and the last time this line 
+    // is accessed
+    m_stats.inc_acc_time_interval(
+        time  - m_tag_array->get_block_last_access_time(cache_index)); 
     cache_status = m_tag_array->access(block_addr, time, cache_index,
                                        mf);  // update LRU state
   } else {
     // do nothing if the access misses the promotion cache.
   }
-  /*
-  m_stats.inc_stats(mf->get_access_type(),
-                    m_stats.select_stats_status(status, cache_status));
-  m_stats.inc_stats_pw(mf->get_access_type(),
-                       m_stats.select_stats_status(status, cache_status));
-  */
+  
+  m_stats.inc_stats(mf->get_access_type(), cache_status);
   assert(cache_status == HIT || cache_status == MISS);
   return cache_status;
 }
 
 void shared_cache::install_shared_line(new_addr_type addr, mem_fetch *mf, 
-                                       unsigned time){
+                                       unsigned time, unsigned cid){
+  unsigned cache_idx;
+  m_tag_array->probe(addr, cache_idx, mf->get_access_sector_mask());
   m_tag_array->fill(addr, time, mf);
   m_stats.inc_n_shared_line();
+  m_tag_array->set_block_been_read(cache_idx, cid);
+}
+
+enum cache_request_status shared_cache::access(new_addr_type addr, 
+                                                  mem_fetch *mf, 
+                                                  unsigned time,
+                                                  unsigned cid) {
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  assert(m_config.m_write_policy == READ_ONLY);
+  assert(!mf->get_is_write());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  // check whether the desired cache line is in the cache
+  enum cache_request_status status =
+      m_tag_array->probe(block_addr, cache_index, mf);
+  enum cache_request_status cache_status = MISS;
+  // the access result of a perfect shared cache is either HIT or MISS
+  assert(status == HIT || status == MISS);
+  if (status == HIT) {
+    // if this block have never been read before
+    if (m_tag_array->get_block_been_read(cache_index) == false) {
+        m_stats.inc_n_shared_line_used();
+    }
+    // log the time interval between current access and the last time this line 
+    // is accessed
+    if (m_tag_array->get_block_been_read_cid(cache_index, cid) == false) {
+      m_stats.inc_acc_time_interval(
+        time - m_tag_array->get_block_last_access_time(cache_index)); 
+      m_stats.inc_stats(mf->get_access_type(), HIT);
+    }  
+    m_tag_array->set_block_been_read(cache_index, cid); 
+    cache_status = m_tag_array->access(block_addr, time, cache_index,
+                                       mf);  // update LRU state
+  } else {
+    // do nothing if the access misses the promotion cache.
+  }
+  assert(cache_status == HIT || cache_status == MISS);
+  return cache_status;
 }
 /******************************************************************************************************************************************/

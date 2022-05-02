@@ -1934,7 +1934,8 @@ void ldst_unit::L1_latency_queue_cycle() {
          s_cache_status = m_core->get_cluster()->get_shared_cache()->access(
                                         mf_next->get_addr(), mf_next, 
                                         m_core->get_gpu()->gpu_sim_cycle +
-                                        m_core->get_gpu()->gpu_tot_sim_cycle);
+                                        m_core->get_gpu()->gpu_tot_sim_cycle,
+                                        m_config->sid_to_cid(m_sid));
       }
       assert(s_cache_status == HIT || s_cache_status == MISS);
       // if the request hit in the s cache, feed the data from the s cache to
@@ -2670,7 +2671,8 @@ void ldst_unit::cycle() {
             if (s_cache_probe == MISS) {
               s_cache->install_shared_line(mf->get_addr(), mf, 
                                          m_core->get_gpu()->gpu_sim_cycle + 
-                                         m_core->get_gpu()->gpu_tot_sim_cycle);
+                                         m_core->get_gpu()->gpu_tot_sim_cycle,
+                                         m_config->sid_to_cid(m_sid));
             }
             else {
               //s_cache->inc_install_existing_line();
@@ -2975,11 +2977,13 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     fprintf(fout, "L1S_cache:\n");
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i) {
       m_cluster[i]->get_L1S_sub_stats(css);
+      unsigned long long n_hits = css.accesses;
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Promoted_lines = %llu, Lines_used = %llu, "
-              "Use_rate%.3lf\n",
+              "Use_rate%.3lf, hits = %llu, avg_acc_interval = %.3lf\n",
               i, css.n_shared_line, css.n_shared_line_used,
-              (double)css.n_shared_line_used / (double)css.n_shared_line);
+              (double)css.n_shared_line_used / (double)css.n_shared_line,
+              n_hits, (double)css.acc_time_interval / (double) n_hits);
 
       total_css += css;
     }
@@ -2991,6 +2995,11 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
         fprintf(fout, "L1S_Line_utilization_rate = %.3lf\n",
                 (double)total_css.n_shared_line_used /
                 (double)total_css.n_shared_line);
+    }
+    if (total_css.accesses - total_css.misses > 0) {
+      fprintf(fout, "L1S_access_time_interval = %.3lf\n",
+              (double) total_css.acc_time_interval /
+              (double) (total_css.accesses - total_css.misses));
     }
   }
 }

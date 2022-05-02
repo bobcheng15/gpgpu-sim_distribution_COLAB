@@ -123,8 +123,8 @@ struct cache_block_t {
   virtual unsigned long long get_last_access_time() = 0;
   virtual void set_last_access_time(unsigned long long time,
                                     mem_access_sector_mask_t sector_mask) = 0;
-  virtual bool get_been_read() = 0;
-  virtual void set_been_read() = 0;
+  virtual bool get_been_read(unsigned core_idx) = 0;
+  virtual void set_been_read(unsigned core_idx) = 0;
   virtual unsigned long long get_alloc_time() = 0;
   virtual void set_ignore_on_fill(bool m_ignore,
                                   mem_access_sector_mask_t sector_mask) = 0;
@@ -150,7 +150,8 @@ struct line_cache_block : public cache_block_t {
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
     m_readable = true;
-    m_been_read = false;
+    for (int i = 0; i < 4; i ++)
+      m_been_read[i] = false;
   }
   void allocate(new_addr_type tag, new_addr_type block_addr, unsigned time,
                 mem_access_sector_mask_t sector_mask) {
@@ -162,7 +163,9 @@ struct line_cache_block : public cache_block_t {
     m_status = RESERVED;
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
-    m_been_read = false;
+    for (int i = 0; i < 4; i ++) { 
+      m_been_read[i] = false;
+    }
   }
   void fill(unsigned time, mem_access_sector_mask_t sector_mask) {
     // if(!m_ignore_on_fill_status)
@@ -192,11 +195,11 @@ struct line_cache_block : public cache_block_t {
                                     mem_access_sector_mask_t sector_mask) {
     m_last_access_time = time;
   }
-  virtual void set_been_read(){
-    m_been_read = true;
+  virtual void set_been_read(unsigned core_index){
+    m_been_read[core_index] = true;
   }
-  virtual bool get_been_read(){
-    return m_been_read;
+  virtual bool get_been_read(unsigned core_index){
+    return m_been_read[core_index];
   }
   virtual unsigned long long get_alloc_time() { return m_alloc_time; }
   virtual void set_ignore_on_fill(bool m_ignore,
@@ -229,7 +232,7 @@ struct line_cache_block : public cache_block_t {
   bool m_ignore_on_fill_status;
   bool m_set_modified_on_fill;
   bool m_readable;
-  bool m_been_read;
+  bool m_been_read[4];
 };
 
 struct sector_cache_block : public cache_block_t {
@@ -356,11 +359,11 @@ struct sector_cache_block : public cache_block_t {
   }
 
   
-  virtual bool get_been_read(){
+  virtual bool get_been_read(unsigned core_idx){
     // do nothing
   }
 
-  virtual void set_been_read(){
+  virtual void set_been_read(unsigned core_idx){
     // do nothing
   }
 
@@ -856,8 +859,21 @@ class tag_array {
 
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
-  bool get_block_been_read(unsigned idx) { 
-    return m_lines[idx]->get_been_read();
+  bool get_block_been_read(unsigned idx) {
+    int shared_count = 0;
+    for (int i = 0; i < 4; i ++) {
+      if (m_lines[idx]->get_been_read(i)) shared_count ++;
+    }
+    return shared_count > 1;
+  }
+  bool get_block_been_read_cid(unsigned idx, unsigned cid) {
+    return m_lines[idx]->get_been_read(cid);
+  }
+  bool set_block_been_read(unsigned idx, unsigned cid) {
+    m_lines[idx]->set_been_read(cid);
+  }
+  unsigned long long get_block_last_access_time(unsigned idx) {
+    return m_lines[idx]->get_last_access_time();
   }
 
   void flush();       // flush all written entries
@@ -984,6 +1000,8 @@ struct cache_sub_stats {
   unsigned long long fill_port_busy_cycles;
   unsigned long long n_shared_line;
   unsigned long long n_shared_line_used;
+  unsigned long long acc_time_interval;
+
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -996,6 +1014,7 @@ struct cache_sub_stats {
     fill_port_busy_cycles = 0;
     n_shared_line = 0;
     n_shared_line_used = 0;
+    acc_time_interval = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -1010,6 +1029,7 @@ struct cache_sub_stats {
     fill_port_busy_cycles += css.fill_port_busy_cycles;
     n_shared_line += css.n_shared_line;
     n_shared_line_used += css.n_shared_line_used;
+    acc_time_interval += css.acc_time_interval;
     return *this;
   }
 
@@ -1032,6 +1052,8 @@ struct cache_sub_stats {
         n_shared_line + cs.n_shared_line;
     ret.n_shared_line_used = 
         n_shared_line_used + cs.n_shared_line_used;
+    ret.acc_time_interval =
+        acc_time_interval + cs.acc_time_interval;
     return ret;
   }
 
@@ -1111,6 +1133,8 @@ class cache_stats {
   void inc_fail_stats(int access_type, int fail_outcome);
   void inc_n_shared_line();
   void inc_n_shared_line_used();
+  void inc_acc_time_interval();
+  void inc_acc_time_interval(unsigned long long time);
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1144,6 +1168,7 @@ class cache_stats {
   std::vector<std::vector<unsigned long long> > m_fail_stats;
   unsigned long long m_n_shared_line;
   unsigned long long m_n_shared_line_used;
+  unsigned long long m_acc_time_interval;
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;
@@ -1832,8 +1857,10 @@ class shared_cache : public read_only_cache {
     // returns miss and do nothing.
     virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                              unsigned time);
- 
+    enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
+                                     unsigned time, unsigned cid); 
+                                      
     void install_shared_line (new_addr_type addr, mem_fetch * mf,
-                                unsigned time);
+                                unsigned time, unsigned cid);
 };
 #endif
