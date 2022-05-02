@@ -1903,37 +1903,8 @@ void tex_cache::display_state(FILE *fp) const {
 enum cache_request_status shared_cache::access(new_addr_type addr, 
                                                   mem_fetch *mf, 
                                                   unsigned time) {
-  assert(mf->get_data_size() <= m_config.get_atom_sz());
-  assert(m_config.m_write_policy == READ_ONLY);
-  assert(!mf->get_is_write());
-  new_addr_type block_addr = m_config.block_addr(addr);
-  unsigned cache_index = (unsigned)-1;
-  // check whether the desired cache line is in the cache
-  enum cache_request_status status =
-      m_tag_array->probe(block_addr, cache_index, mf);
-  enum cache_request_status cache_status = MISS;
-  // the access result of a perfect shared cache is either HIT or MISS
-  assert(status == HIT || status == MISS);
-  if (status == HIT) {
-    // if this block have never been read before
-    if (m_tag_array->get_block_been_read(cache_index) == false){
-        m_stats.inc_n_shared_line_used();
-    }
-    // log the time interval between current access and the last time this line 
-    // is accessed
-    m_stats.inc_acc_time_interval(
-        time  - m_tag_array->get_block_last_access_time(cache_index)); 
-    cache_status = m_tag_array->access(block_addr, time, cache_index,
-                                       mf);  // update LRU state
-  } else {
-    // do nothing if the access misses the promotion cache.
-  }
-  
-  m_stats.inc_stats(mf->get_access_type(), cache_status);
-  assert(cache_status == HIT || cache_status == MISS);
-  return cache_status;
+  // placeholder, not used
 }
-
 void shared_cache::install_shared_line(new_addr_type addr, mem_fetch *mf, 
                                        unsigned time, unsigned cid){
   unsigned cache_idx;
@@ -1960,7 +1931,7 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
   assert(status == HIT || status == MISS);
   if (status == HIT) {
     // if this block have never been read before
-    if (m_tag_array->get_block_been_read(cache_index) == false) {
+    if (m_tag_array->get_block_been_read(cache_index, cid) == false) {
         m_stats.inc_n_shared_line_used();
     }
     // log the time interval between current access and the last time this line 

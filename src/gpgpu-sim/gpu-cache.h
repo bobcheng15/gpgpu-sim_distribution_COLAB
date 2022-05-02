@@ -859,12 +859,12 @@ class tag_array {
 
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
-  bool get_block_been_read(unsigned idx) {
+  bool get_block_been_read(unsigned idx, unsigned cid) {
     int shared_count = 0;
     for (int i = 0; i < 4; i ++) {
       if (m_lines[idx]->get_been_read(i)) shared_count ++;
     }
-    return shared_count > 1;
+    return (shared_count > 1) | (m_lines[idx]->get_been_read(cid) != 0);
   }
   bool get_block_been_read_cid(unsigned idx, unsigned cid) {
     return m_lines[idx]->get_been_read(cid);
