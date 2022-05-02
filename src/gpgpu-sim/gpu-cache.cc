@@ -231,15 +231,17 @@ void tag_array::remove_pending_line(mem_fetch *mf) {
 
 enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
                                            mem_fetch *mf,
-                                           bool probe_mode) const {
+                                           bool probe_mode,
+                                           unsigned time) const {
   mem_access_sector_mask_t mask = mf->get_access_sector_mask();
-  return probe(addr, idx, mask, probe_mode, mf);
+  return probe(addr, idx, mask, probe_mode, mf, time);
 }
 
 enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
                                            mem_access_sector_mask_t mask,
                                            bool probe_mode,
-                                           mem_fetch *mf) const {
+                                           mem_fetch *mf,
+                                           unsigned time) const {
   // assert( m_config.m_write_policy == READ_ONLY );
   unsigned set_index = m_config.set_index(addr);
   new_addr_type tag = m_config.tag(addr);
@@ -294,6 +296,14 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
             valid_timestamp = line->get_alloc_time();
             valid_line = index;
           }
+        } else if (m_config.m_replacement_policy == REUSE_DIST) {
+          if (line->get_protection_deadline() < time && 
+              line->get_protection_deadline() < valid_timestamp) {
+            valid_timestamp = line->get_protection_deadline();
+            valid_line = index;
+          }
+        } else {
+          abort();
         }
       }
     }
@@ -311,10 +321,10 @@ enum cache_request_status tag_array::probe(new_addr_type addr, unsigned &idx,
   // TRACE: if no invalid line is found and a line is selected for replacement 
   else if (valid_line != (unsigned)-1) {
     idx = valid_line;
-  } else
-    abort();  // if an unreserved block exists, it is either invalid or
-              // replaceable
-
+  } else {
+    assert(m_config.m_replacement_policy == REUSE_DIST);
+    return RESERVATION_FAIL;
+  }
   if (probe_mode && m_config.is_streaming()) {
     line_table::const_iterator i =
         pending_lines.find(m_config.block_addr(addr));
@@ -406,6 +416,35 @@ void tag_array::fill(new_addr_type addr, unsigned time,
   }
 
   m_lines[idx]->fill(time, mask);
+}
+
+cache_request_status tag_array::fill(new_addr_type addr, unsigned time,
+                                     unsigned reuse_dist, 
+                                     mem_access_sector_mask_t mask,
+                                     unsigned cid) {
+  assert(m_config.m_replacement_policy == REUSE_DIST);
+  unsigned idx;
+  enum cache_request_status status = probe(addr, idx, mask, time);
+  // assert(status==MISS||status==SECTOR_MISS); // MSHR should have prevented
+  // redundant memory request
+  if (status == MISS) {
+    m_lines[idx]->allocate(m_config.tag(addr), m_config.block_addr(addr), time,
+                           mask);
+    m_lines[idx]->fill(time, mask);
+    m_lines[idx]->set_protection_deadline(time + reuse_dist);
+    set_block_been_read(idx, cid);
+  } else if (status == HIT) { 
+    // if the line we are installing is already with in the cache, extend its 
+    // lifetime.
+    m_lines[idx]->set_protection_deadline(time + reuse_dist);
+  }
+  else if (status == SECTOR_MISS) {
+    assert(m_config.m_cache_type == SECTOR);
+    ((sector_cache_block *)m_lines[idx])->allocate_sector(time, mask);
+    m_lines[idx]->fill(time, mask);
+    m_lines[idx]->set_protection_deadline(time + reuse_dist);
+  }
+  return status;
 }
 
 void tag_array::fill(unsigned index, unsigned time, mem_fetch *mf) {
@@ -971,6 +1010,11 @@ void cache_stats::sample_cache_port_utility(bool data_port_busy,
   if (fill_port_busy) {
     m_cache_fill_port_busy_cycles += 1;
   }
+}
+
+unsigned long long cache_stats::get_avg_acc_interval() const {
+  if (m_stats[GLOBAL_ACC_R][HIT] == 0) return 10000;
+  else return m_acc_time_interval / m_stats[GLOBAL_ACC_R][HIT];   
 }
 
 baseline_cache::bandwidth_management::bandwidth_management(cache_config &config)
@@ -1905,13 +1949,16 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
                                                   unsigned time) {
   // placeholder, not used
 }
-void shared_cache::install_shared_line(new_addr_type addr, mem_fetch *mf, 
-                                       unsigned time, unsigned cid){
-  unsigned cache_idx;
-  m_tag_array->probe(addr, cache_idx, mf->get_access_sector_mask());
-  m_tag_array->fill(addr, time, mf);
-  m_stats.inc_n_shared_line();
-  m_tag_array->set_block_been_read(cache_idx, cid);
+cache_request_status shared_cache::install_shared_line(new_addr_type addr, 
+                                                       mem_fetch *mf, 
+                                                       unsigned time, 
+                                                       unsigned cid){
+  cache_request_status fill_status = MISS;
+  unsigned long long reuse_dist = m_stats.get_avg_acc_interval();
+  fill_status = m_tag_array->fill(addr, time, reuse_dist, 
+                                  mf->get_access_sector_mask(), cid);
+  if (fill_status == MISS) m_stats.inc_n_shared_line();
+  return fill_status;
 }
 
 enum cache_request_status shared_cache::access(new_addr_type addr, 
@@ -1927,8 +1974,6 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
   enum cache_request_status status =
       m_tag_array->probe(block_addr, cache_index, mf);
   enum cache_request_status cache_status = MISS;
-  // the access result of a perfect shared cache is either HIT or MISS
-  assert(status == HIT || status == MISS);
   if (status == HIT) {
     // if this block have never been read before
     if (m_tag_array->get_block_been_read(cache_index, cid) == false) {
@@ -1944,6 +1989,9 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
     m_tag_array->set_block_been_read(cache_index, cid); 
     cache_status = m_tag_array->access(block_addr, time, cache_index,
                                        mf);  // update LRU state
+    // update the reuse distance protection on cache hit
+    unsigned long long reuse_dist = m_stats.get_avg_acc_interval();
+    m_tag_array->set_block_protection_deadline(cache_index, time + reuse_dist);
   } else {
     // do nothing if the access misses the promotion cache.
   }

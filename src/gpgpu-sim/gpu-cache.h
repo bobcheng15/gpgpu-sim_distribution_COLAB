@@ -125,6 +125,8 @@ struct cache_block_t {
                                     mem_access_sector_mask_t sector_mask) = 0;
   virtual bool get_been_read(unsigned core_idx) = 0;
   virtual void set_been_read(unsigned core_idx) = 0;
+  virtual unsigned long long get_protection_deadline() = 0;
+  virtual void set_protection_deadline(unsigned long long deadline) = 0;
   virtual unsigned long long get_alloc_time() = 0;
   virtual void set_ignore_on_fill(bool m_ignore,
                                   mem_access_sector_mask_t sector_mask) = 0;
@@ -152,6 +154,7 @@ struct line_cache_block : public cache_block_t {
     m_readable = true;
     for (int i = 0; i < 4; i ++)
       m_been_read[i] = false;
+    m_protection_deadline = 0;
   }
   void allocate(new_addr_type tag, new_addr_type block_addr, unsigned time,
                 mem_access_sector_mask_t sector_mask) {
@@ -166,6 +169,7 @@ struct line_cache_block : public cache_block_t {
     for (int i = 0; i < 4; i ++) { 
       m_been_read[i] = false;
     }
+    m_protection_deadline = 0;
   }
   void fill(unsigned time, mem_access_sector_mask_t sector_mask) {
     // if(!m_ignore_on_fill_status)
@@ -201,6 +205,12 @@ struct line_cache_block : public cache_block_t {
   virtual bool get_been_read(unsigned core_index){
     return m_been_read[core_index];
   }
+  virtual unsigned long long get_protection_deadline() {
+    return m_protection_deadline;
+  }
+  virtual void set_protection_deadline(unsigned long long deadline) {
+    m_protection_deadline = deadline;
+  }
   virtual unsigned long long get_alloc_time() { return m_alloc_time; }
   virtual void set_ignore_on_fill(bool m_ignore,
                                   mem_access_sector_mask_t sector_mask) {
@@ -233,6 +243,7 @@ struct line_cache_block : public cache_block_t {
   bool m_set_modified_on_fill;
   bool m_readable;
   bool m_been_read[4];
+  unsigned long long m_protection_deadline;
 };
 
 struct sector_cache_block : public cache_block_t {
@@ -361,10 +372,19 @@ struct sector_cache_block : public cache_block_t {
   
   virtual bool get_been_read(unsigned core_idx){
     // do nothing
+    return false;
   }
 
   virtual void set_been_read(unsigned core_idx){
     // do nothing
+  }
+
+  virtual unsigned long long get_protection_deadline() {
+    return 0;
+  }
+
+  virtual void set_protection_deadline(unsigned long long deadline) { 
+    // do nothing 
   }
 
   virtual void set_last_access_time(unsigned long long time,
@@ -433,7 +453,7 @@ struct sector_cache_block : public cache_block_t {
   }
 };
 
-enum replacement_policy_t { LRU, FIFO };
+enum replacement_policy_t { LRU, FIFO, REUSE_DIST };
 
 enum write_policy_t {
   READ_ONLY,
@@ -523,15 +543,21 @@ class cache_config {
       case 'F':
         m_replacement_policy = FIFO;
         break;
+      case 'R':
+        m_replacement_policy = REUSE_DIST;
+        break;
       default:
         exit_parse_error();
     }
     switch (rp) {
       case 'L':
         m_replacement_policy = LRU;
-        break;
+        break;;
       case 'F':
         m_replacement_policy = FIFO;
+        break;
+      case 'R':
+        m_replacement_policy = REUSE_DIST;
         break;
       default:
         exit_parse_error();
@@ -842,11 +868,13 @@ class tag_array {
   ~tag_array();
 
   enum cache_request_status probe(new_addr_type addr, unsigned &idx,
-                                  mem_fetch *mf, bool probe_mode = false) const;
+                                  mem_fetch *mf, bool probe_mode = false,
+                                  unsigned time = 0) const;
   enum cache_request_status probe(new_addr_type addr, unsigned &idx,
                                   mem_access_sector_mask_t mask,
                                   bool probe_mode = false,
-                                  mem_fetch *mf = NULL) const;
+                                  mem_fetch *mf = NULL,
+                                  unsigned time = 0) const;
   enum cache_request_status access(new_addr_type addr, unsigned time,
                                    unsigned &idx, mem_fetch *mf);
   enum cache_request_status access(new_addr_type addr, unsigned time,
@@ -856,6 +884,9 @@ class tag_array {
   void fill(new_addr_type addr, unsigned time, mem_fetch *mf);
   void fill(unsigned idx, unsigned time, mem_fetch *mf);
   void fill(new_addr_type addr, unsigned time, mem_access_sector_mask_t mask);
+  cache_request_status fill(new_addr_type addr, unsigned time, 
+                            unsigned reuse_dist, mem_access_sector_mask_t mask,
+                            unsigned cid); 
 
   unsigned size() const { return m_config.get_num_lines(); }
   cache_block_t *get_block(unsigned idx) { return m_lines[idx]; }
@@ -874,6 +905,10 @@ class tag_array {
   }
   unsigned long long get_block_last_access_time(unsigned idx) {
     return m_lines[idx]->get_last_access_time();
+  }
+  void set_block_protection_deadline(unsigned idx, 
+                                     unsigned long long deadline) {
+    m_lines[idx]->set_protection_deadline(deadline);
   }
 
   void flush();       // flush all written entries
@@ -1157,6 +1192,7 @@ class cache_stats {
   void get_sub_stats_pw(struct cache_sub_stats_pw &css) const;
 
   void sample_cache_port_utility(bool data_port_busy, bool fill_port_busy);
+  unsigned long long get_avg_acc_interval() const;
 
  private:
   bool check_valid(int type, int status) const;
@@ -1858,9 +1894,9 @@ class shared_cache : public read_only_cache {
     virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                              unsigned time);
     enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
-                                     unsigned time, unsigned cid); 
+                                     unsigned time, unsigned cid);
                                       
-    void install_shared_line (new_addr_type addr, mem_fetch * mf,
+    cache_request_status install_shared_line (new_addr_type addr, mem_fetch * mf,
                                 unsigned time, unsigned cid);
 };
 #endif

@@ -2665,21 +2665,25 @@ void ldst_unit::cycle() {
           // install it into the per cluster shared cache.
           if (dist(rng) < shared_prob && mf->get_access_type() == GLOBAL_ACC_R) {
             shared_cache * s_cache = m_core->get_cluster()->get_shared_cache();
-            cache_request_status s_cache_probe = s_cache->probe(mf->get_addr(),
-                                                                mf);
-            assert(s_cache_probe == MISS || s_cache_probe == HIT);
-            if (s_cache_probe == MISS) {
-              s_cache->install_shared_line(mf->get_addr(), mf, 
+            cache_request_status fill_status = s_cache->install_shared_line(
+                                         mf->get_addr(), mf, 
                                          m_core->get_gpu()->gpu_sim_cycle + 
                                          m_core->get_gpu()->gpu_tot_sim_cycle,
                                          m_config->sid_to_cid(m_sid));
-            }
-            else {
-              //s_cache->inc_install_existing_line();
-            }
-            m_L1D->mark_mshr_entry_ready(mf, m_core->get_gpu()->gpu_sim_cycle +
+            if (fill_status != RESERVATION_FAIL) {
+              m_L1D->mark_mshr_entry_ready(mf, m_core->get_gpu()->gpu_sim_cycle +
                                          m_core->get_gpu()->gpu_tot_sim_cycle);
-            m_response_fifo.pop_front();
+              m_response_fifo.pop_front();
+            } else {
+              // all lines in the shared cache are protected, roll back to
+              // install this line in the private l1 cache
+              if (m_L1D->fill_port_free()) {
+                m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
+                            m_core->get_gpu()->gpu_tot_sim_cycle);
+                m_response_fifo.pop_front();
+              }
+            }
+
           } else {
             // unlikely to be a shared line, install it into the per core
             // private l1 cache if the fill port of the l1 cache is available.
