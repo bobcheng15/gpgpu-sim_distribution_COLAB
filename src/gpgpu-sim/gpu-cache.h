@@ -1849,8 +1849,12 @@ class shared_cache : public read_only_cache {
  public:
   shared_cache(const char *name, cache_config &config, int cluster_id,
                   int type_id, mem_fetch_interface *memport,
-                  enum mem_fetch_status status)
-    : read_only_cache(name, config, cluster_id, type_id, memport, status){}
+                  enum mem_fetch_status status, class gpgpu_sim *gpu)
+    : read_only_cache(name, config, cluster_id, type_id, memport, status) {
+    m_gpu = gpu;
+  
+
+  }
     
     // Access function for promotion cache, the access result is either a hit or
     // a miss. On a hit, returns HIT and update the LRU information. On a miss 
@@ -1862,5 +1866,7 @@ class shared_cache : public read_only_cache {
                                       
     void install_shared_line (new_addr_type addr, mem_fetch * mf,
                                 unsigned time, unsigned cid);
+ protected: 
+   class gpgpu_sim *m_gpu;
 };
 #endif

@@ -1936,11 +1936,13 @@ enum cache_request_status shared_cache::access(new_addr_type addr,
     }
     // log the time interval between current access and the last time this line 
     // is accessed
-    if (m_tag_array->get_block_been_read_cid(cache_index, cid) == false) {
-      m_stats.inc_acc_time_interval(
-        time - m_tag_array->get_block_last_access_time(cache_index)); 
+    //if (m_tag_array->get_block_been_read_cid(cache_index, cid) == false) {
+    m_stats.inc_acc_time_interval(
+      time - m_tag_array->get_block_last_access_time(cache_index)); 
       m_stats.inc_stats(mf->get_access_type(), HIT);
-    }  
+    m_gpu->inc_reuse_dist(mf->get_pc(), time - 
+                          m_tag_array->get_block_last_access_time(cache_index));
+    //}  
     m_tag_array->set_block_been_read(cache_index, cid); 
     cache_status = m_tag_array->access(block_addr, time, cache_index,
                                        mf);  // update LRU state

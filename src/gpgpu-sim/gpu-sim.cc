@@ -1312,6 +1312,7 @@ void gpgpu_sim::gpu_print_stat() {
   // clear the mem access table
   access_table.clear();
   n_remote_access_table.clear();
+  reuse_dist_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2130,8 +2131,22 @@ void gpgpu_sim::print_hit_table(FILE *fout){
                   get_load_remote_rate(cur_pc),
                   (double) total_n_access / (double) total_sharing_cores); 
     cur_table_entry.clear();
+    if (reuse_dist_table.find(cur_pc) != reuse_dist_table.end()) {
+      for (int i = 0; i < 11; i ++) {
+        fprintf(fout, "%4u: %5llu, ", i * 1000, reuse_dist_table[cur_pc][i]);
+      }
+      fprintf(fout, "\n");
+    }
+  }   
+}
+
+void gpgpu_sim::inc_reuse_dist(address_type pc, unsigned long long reuse_dist) {
+  if (reuse_dist_table.find(pc) == reuse_dist_table.end()) {
+    reuse_dist_table.emplace(pc, std::vector<unsigned long long>(11, 0));
   }
-    
+  assert(reuse_dist_table.find(pc) != reuse_dist_table.end());
+  unsigned reuse_dist_index = (reuse_dist / 1000 > 9)? 10: reuse_dist / 1000; 
+  reuse_dist_table[pc][reuse_dist_index] ++;
 }
 
 access_entry::access_entry() {

@@ -568,6 +568,7 @@ class gpgpu_sim : public gpgpu_t {
   void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
   double get_load_remote_rate(address_type pc);
   void print_hit_table(FILE *fout);
+  void inc_reuse_dist(address_type pc, unsigned long long reuse_dist);
 
  private:
   // clocks
@@ -643,6 +644,7 @@ class gpgpu_sim : public gpgpu_t {
   virtual void createSIMTCluster() = 0;
   std::map<address_type, std::map<new_addr_type, access_entry>> access_table;
   std::map<address_type, unsigned long long> n_remote_access_table;
+  std::map<address_type, std::vector<unsigned long long>> reuse_dist_table;
 
  public:
   unsigned long long gpu_sim_insn;

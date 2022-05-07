@@ -4277,7 +4277,7 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
     snprintf(L1S_name, STRSIZE, "L1S_%03d", m_cluster_id);
     m_L1S = new shared_cache(L1S_name, m_config->m_L1S_config, m_cluster_id,
                                 get_shader_constant_cache_id(), NULL, 
-                                IN_L1C_MISS_QUEUE);
+                                IN_L1C_MISS_QUEUE, gpu);
   }
 }
 
