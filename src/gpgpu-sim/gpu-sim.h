@@ -704,7 +704,8 @@ class access_entry {
   void inc_hit_dist(unsigned core_idx);
   unsigned long long int print(FILE * fout, 
                                new_addr_type addr, 
-                               unsigned & shared_count);
+                               unsigned & shared_count,
+                               unsigned & intra_cluster_reuse_count);
  private: 
   unsigned int hit_dist[28];
 };
