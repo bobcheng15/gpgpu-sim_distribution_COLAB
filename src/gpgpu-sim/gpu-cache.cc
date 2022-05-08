@@ -424,7 +424,7 @@ cache_request_status tag_array::fill(new_addr_type addr, unsigned time,
                                      unsigned cid) {
   assert(m_config.m_replacement_policy == REUSE_DIST);
   unsigned idx;
-  enum cache_request_status status = probe(addr, idx, mask, time);
+  enum cache_request_status status = probe(addr, idx, mask, false, NULL, time);
   // assert(status==MISS||status==SECTOR_MISS); // MSHR should have prevented
   // redundant memory request
   if (status == MISS) {
