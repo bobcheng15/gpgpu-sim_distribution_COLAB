@@ -2659,7 +2659,7 @@ void ldst_unit::cycle() {
           }
         } else {
           double shared_prob = m_core->get_gpu()
-                                ->get_load_remote_rate(mf->get_pc());
+                                ->get_load_intra_cluster_rate(mf->get_pc());
           std::uniform_real_distribution<double> dist(0.0, 1.0);
           // according to the pc lut, this is very likely a shared line,
           // install it into the per cluster shared cache.

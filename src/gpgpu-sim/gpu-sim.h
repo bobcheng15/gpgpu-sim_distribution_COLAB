@@ -567,6 +567,7 @@ class gpgpu_sim : public gpgpu_t {
   class gpgpu_context *gpgpu_ctx;
   void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
   double get_load_remote_rate(address_type pc);
+  double get_load_intra_cluster_rate(address_type pc);
   void print_hit_table(FILE *fout);
 
  private:
@@ -643,6 +644,7 @@ class gpgpu_sim : public gpgpu_t {
   virtual void createSIMTCluster() = 0;
   std::map<address_type, std::map<new_addr_type, access_entry>> access_table;
   std::map<address_type, unsigned long long> n_remote_access_table;
+  std::map<address_type, unsigned long long> n_intra_cluster_access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -705,6 +707,7 @@ class access_entry {
  public:   
   access_entry();
   bool inc_hit_dist(unsigned core_idx, bool first_access);
+  bool inc_intra_cluster_hit(unsigned core_idx, bool first_access);
   unsigned long long int print(FILE * fout, 
                                new_addr_type addr, 
                                unsigned & shared_count);
@@ -712,5 +715,6 @@ class access_entry {
  private: 
   unsigned int hit_dist[28];
   bool shared;
+  bool intra_cluster_shared;
 };
 #endif
