@@ -645,6 +645,7 @@ class gpgpu_sim : public gpgpu_t {
   std::map<address_type, std::map<new_addr_type, access_entry>> access_table;
   std::map<address_type, unsigned long long> n_remote_access_table;
   std::map<address_type, unsigned long long> n_intra_cluster_access_table;
+  std::map<address_type, unsigned long long> n_cluster_access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -707,7 +708,7 @@ class access_entry {
  public:   
   access_entry();
   bool inc_hit_dist(unsigned core_idx, bool first_access);
-  bool inc_intra_cluster_hit(unsigned core_idx, bool first_access);
+  bool inc_cluster_access(unsigned core_idx, bool &shared);
   unsigned long long int print(FILE * fout, 
                                new_addr_type addr, 
                                unsigned & shared_count);
@@ -715,6 +716,7 @@ class access_entry {
  private: 
   unsigned int hit_dist[28];
   bool shared;
-  bool intra_cluster_shared;
+  bool intra_cluster_shared[7];
+  bool cluster_accessed[7];
 };
 #endif

@@ -1313,6 +1313,7 @@ void gpgpu_sim::gpu_print_stat() {
   access_table.clear();
   n_remote_access_table.clear();
   n_intra_cluster_access_table.clear();
+  n_cluster_access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2086,12 +2087,20 @@ void gpgpu_sim::inc_hit_dist(address_type pc,
       n_remote_access_table[pc] ++;
     }
   }
-  if (cur_access_entry.inc_intra_cluster_hit(this_core_idx, first_access)) {
+  bool intra_cluster_sharing = false;
+  if (cur_access_entry.inc_cluster_access(this_core_idx, intra_cluster_sharing)) {
+    if (n_cluster_access_table.find(pc) == n_cluster_access_table.end()) {
+      n_cluster_access_table[pc] = 1;
+    } else {
+      n_cluster_access_table[pc] ++;
+    }
+  }
+  if (intra_cluster_sharing) {
     if (n_intra_cluster_access_table.find(pc) == 
-                                n_intra_cluster_access_table.end()) {
+            n_intra_cluster_access_table.end()) {
       n_intra_cluster_access_table[pc] = 1;
     }
-    else { 
+    else {
       n_intra_cluster_access_table[pc] ++;
     }
   }
@@ -2103,7 +2112,7 @@ double gpgpu_sim::get_load_remote_rate(address_type pc) {
 
 double gpgpu_sim::get_load_intra_cluster_rate(address_type pc) {
   return (double)n_intra_cluster_access_table[pc] / 
-                                            (double)access_table[pc].size();
+                (double)n_cluster_access_table[pc];
 }                                          
 
 void gpgpu_sim::print_hit_table(FILE *fout){
@@ -2140,12 +2149,14 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     fprintf(fout, "\n");
     fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
                   "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n"
-                  "intra_cluster_access = %5llu, intra_cluster_rate = %.4lf\n"
+                  "intra_cluster_access = %5llu, n_cluster_access = %5llu, " 
+                  "intra_cluster_rate = %.4lf\n"
                   , access_table[cur_pc].size(), 
                   n_remote_access_table[cur_pc], 
                   get_load_remote_rate(cur_pc),
                   (double) total_n_access / (double) total_sharing_cores,
                   n_intra_cluster_access_table[cur_pc],
+                  n_cluster_access_table[cur_pc],
                   get_load_intra_cluster_rate(cur_pc)); 
     cur_table_entry.clear();
   }
@@ -2156,8 +2167,11 @@ access_entry::access_entry() {
   for (int i = 0; i < 28; i ++){
     hit_dist[i] = 0;
   }
+  for (int i = 0; i < 7; i ++) {
+    intra_cluster_shared[i] = false;
+    cluster_accessed[i] = false;
+  }
   shared = false;
-  intra_cluster_shared = false;
 }
 
 bool access_entry::inc_hit_dist(unsigned core_idx, bool first_access){
@@ -2173,16 +2187,26 @@ bool access_entry::inc_hit_dist(unsigned core_idx, bool first_access){
   return false;
 }
 
-bool access_entry::inc_intra_cluster_hit(unsigned core_idx, bool first_access){
-  if (intra_cluster_shared || first_access) return false;
-  unsigned cluster_starting_cid = (core_idx / 4) * 4;
-  for (int i = cluster_starting_cid; i < cluster_starting_cid + 4; i ++) {
-    if (i != core_idx && hit_dist[i] > 0) { 
-      intra_cluster_shared = true;
-      return true;
+bool access_entry::inc_cluster_access(unsigned core_idx, bool &shared){
+  unsigned cluster_id = core_idx / 4;
+  shared = false;
+  if (!intra_cluster_shared[cluster_id]) {
+    unsigned cluster_starting_cid = (core_idx / 4) * 4;
+    unsigned n_sharing_cores = 0;
+    for (int i = cluster_starting_cid; i < cluster_starting_cid + 4; i ++) {
+      if (hit_dist[i] > 0) n_sharing_cores ++;
+      if (n_sharing_cores >= 2) {
+        intra_cluster_shared[cluster_id] = true;
+        shared = true;
+        break;
+      }
     }
   }
-  return false;
+  if (cluster_accessed[cluster_id]) return false;
+  else {
+    cluster_accessed[cluster_id] = true;
+    return true;
+  }
 }
 
 
