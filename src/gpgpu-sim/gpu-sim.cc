@@ -2080,6 +2080,7 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     unsigned long long int total_n_access = 0;
     unsigned long long int total_sharing_cores = 0;
     unsigned long long int total_intra_cluster_reuse_count = 0;
+    unsigned long long int total_n_accessing_cluster = 0;
     address_type cur_pc = it_pc->first;
     fprintf(fout, "pc =  %5u \n", cur_pc);
     auto * cur_table_entry = it_pc->second;
@@ -2094,17 +2095,19 @@ void gpgpu_sim::print_hit_table(FILE *fout){
       assert(access_info != NULL);
       unsigned shared_count = 0;
       unsigned intra_cluster_reuse = 0;
+      unsigned n_accessing_cluster = 0;
       unsigned long long int n_access = 
                              access_info->print(fout, addr, shared_count,
-                                                intra_cluster_reuse);
+                                                intra_cluster_reuse,
+                                                n_accessing_cluster);
       if (shared_count > 1) {
         shared_line_count ++;
         total_n_access += n_access;
         total_sharing_cores += shared_count;
       }
       access_core_dist[shared_count] ++;
-      if (intra_cluster_reuse > 1) 
-        total_intra_cluster_reuse_count ++;
+      total_n_accessing_cluster += n_accessing_cluster;
+      total_intra_cluster_reuse_count += intra_cluster_reuse;
     }
     for (int i = 0; i < 29; i ++) { 
       fprintf(fout, "%d: %5llu,", i, access_core_dist[i]);
@@ -2113,12 +2116,14 @@ void gpgpu_sim::print_hit_table(FILE *fout){
     fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
                   "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n, "
                   "n_intra_cluster_reuse = %5llu, "
+                  "n_accessing_clusters = %5llu, "
                   "intra_cluster_reuse_rate = %.4lf\n"
                   , total_line_count, shared_line_count, 
                   (double) shared_line_count / (double) total_line_count,
                   (double) total_n_access / (double) total_sharing_cores,
                   total_intra_cluster_reuse_count, 
-                  (double) total_intra_cluster_reuse_count / (double) total_line_count); 
+                  total_n_accessing_cluster,
+                  (double) total_intra_cluster_reuse_count / (double) total_n_accessing_cluster); 
   }
     
 }
@@ -2136,11 +2141,13 @@ void access_entry::inc_hit_dist(unsigned core_idx){
 unsigned long long int access_entry::print(FILE * fout, 
                            new_addr_type addr, 
                            unsigned & shared_count,
-                           unsigned & intra_cluster_reuse_count) {
+                           unsigned & intra_cluster_reuse_count,
+                           unsigned & n_accessing_cluster) {
   //fprintf(fout, "addr = %7llu,", addr);
   unsigned long long int total_access_count = 0;
   shared_count = 0;
   intra_cluster_reuse_count = 0;
+  n_accessing_cluster = 0;
   for (int i = 0; i < 7; i ++) { 
     unsigned intra_cluster_access = 0;
     for (int j = 0; j < 4; j ++) { 
@@ -2151,6 +2158,7 @@ unsigned long long int access_entry::print(FILE * fout,
       total_access_count += hit_dist[i * 4 + j];
     }
     if (intra_cluster_access > 1) intra_cluster_reuse_count ++;
+    if (intra_cluster_access > 0) n_accessing_cluster ++;
   }
   //fprintf(fout, "sharing_core: %2u\n", shared_count);
   return total_access_count;
