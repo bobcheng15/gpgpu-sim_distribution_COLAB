@@ -1718,6 +1718,10 @@ void ldst_unit::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   if (m_L1T) m_L1T->get_sub_stats(css);
 }
 
+enum cache_request_status ldst_unit::probe_l1_cache(mem_fetch *mf) const {
+  return m_L1D->probe(mf);
+}
+
 void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 #if 0
       printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu \n",
@@ -1979,6 +1983,7 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
+        check_intra_cluster_replication(mf_next);
       }
     }
     // pipelined cache
@@ -1989,6 +1994,21 @@ void ldst_unit::L1_latency_queue_cycle() {
         l1_latency_queue[j][stage + 1] = NULL;
       }
   }
+}
+
+void ldst_unit::check_intra_cluster_replication(mem_fetch *mf) {
+  simt_core_cluster *cluster = m_core->get_cluster();
+  for (int i = 0; i < m_core->get_config()->n_simt_cores_per_cluster; i ++) {
+    shader_core_ctx *core = cluster->get_core(i);
+    // only check the L1 cache of other shader cores within the cluster
+    if (core == m_core) continue;
+    enum cache_request_status probe_result = core->probe_l1_cache(mf);
+    // if the intra cluster probe is a hit
+    if (probe_result == HIT) {
+      m_L1D->inc_replication_hit();
+      return;
+    }
+  }  
 }
 
 bool ldst_unit::constant_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
@@ -2834,10 +2854,12 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
 
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu\n",
+              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu, "
+              "replication_hits = %llu, replication_rate = %.3lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              css.res_fails);
+              css.res_fails, css.replication_hit, 
+              (double)css.replication_hit / (double)css.misses);
 
       total_css += css;
     }
@@ -3674,6 +3696,10 @@ bool shader_core_ctx::check_if_non_released_reduction_barrier(
   return non_released_barrier_reduction;
 }
 
+enum cache_request_status shader_core_ctx::probe_l1_cache(mem_fetch *mf) const{
+  return m_ldst_unit->probe_l1_cache(mf);
+}
+
 bool shader_core_ctx::warp_waiting_at_barrier(unsigned warp_id) const {
   return m_barriers.warp_waiting_at_barrier(warp_id);
 }
@@ -3770,6 +3796,7 @@ void shader_core_ctx::get_L1C_sub_stats(struct cache_sub_stats &css) const {
 void shader_core_ctx::get_L1T_sub_stats(struct cache_sub_stats &css) const {
   m_ldst_unit->get_L1T_sub_stats(css);
 }
+
 
 void shader_core_ctx::get_icnt_power_stats(long &n_simt_to_mem,
                                            long &n_mem_to_simt) const {

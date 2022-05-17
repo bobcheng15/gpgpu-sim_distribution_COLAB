@@ -958,6 +958,7 @@ struct cache_sub_stats {
   unsigned long long port_available_cycles;
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
+  unsigned long long replication_hit;
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -968,6 +969,7 @@ struct cache_sub_stats {
     port_available_cycles = 0;
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
+    replication_hit = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -980,6 +982,8 @@ struct cache_sub_stats {
     port_available_cycles += css.port_available_cycles;
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
+    replication_hit += css.replication_hit;
+
     return *this;
   }
 
@@ -998,6 +1002,9 @@ struct cache_sub_stats {
         data_port_busy_cycles + cs.data_port_busy_cycles;
     ret.fill_port_busy_cycles =
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
+    ret.replication_hit = 
+        replication_hit + cs.replication_hit;
+
     return ret;
   }
 
@@ -1075,6 +1082,7 @@ class cache_stats {
   // Increment AerialVision cache stats
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
+  void inc_replication_hit();
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1110,6 +1118,7 @@ class cache_stats {
   unsigned long long m_cache_port_available_cycles;
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;
+  unsigned long long m_replication_hit;
 };
 
 class cache_t {
@@ -1547,6 +1556,9 @@ class l1_cache : public data_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
+  
+  enum cache_request_status probe(mem_fetch *mf);
+  void inc_replication_hit();
 
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,

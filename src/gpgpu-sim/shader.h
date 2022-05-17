@@ -1301,6 +1301,7 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
+  enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1368,6 +1369,7 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
+  void check_intra_cluster_replication(mem_fetch *mf);
 };
 
 enum pipeline_stage_name_t {
@@ -2110,6 +2112,12 @@ class shader_core_ctx : public core_t {
   }
   bool check_if_non_released_reduction_barrier(warp_inst_t &inst);
 
+  simt_core_cluster *get_cluster() const {
+    return m_cluster;
+  }
+  
+  enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
+
  protected:
   unsigned inactive_lanes_accesses_sfu(unsigned active_count, double latency) {
     return (((32 - active_count) >> 1) * latency) +
@@ -2345,6 +2353,9 @@ class simt_core_cluster {
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
   virtual void create_shader_core_ctx() = 0;
+  shader_core_ctx *get_core(unsigned cid) {
+    return m_core[cid];
+  }
 
  protected:
   unsigned m_cluster_id;
