@@ -566,6 +566,9 @@ class gpgpu_sim : public gpgpu_t {
   class gpgpu_context *gpgpu_ctx;
   void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
   void print_hit_table(FILE *fout);
+  class simt_core_cluster *get_cluster(unsigned cluster_idx) {
+    return m_cluster[cluster_idx];
+  }
 
  private:
   // clocks
@@ -708,6 +711,6 @@ class access_entry {
                                unsigned & intra_cluster_reuse_count,
                                unsigned & n_accessing_cluster);
  private: 
-  unsigned int hit_dist[28];
+  unsigned int hit_dist[32];
 };
 #endif

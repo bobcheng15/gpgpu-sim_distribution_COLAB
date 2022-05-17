@@ -1997,10 +1997,11 @@ void ldst_unit::L1_latency_queue_cycle() {
 }
 
 void ldst_unit::check_intra_cluster_replication(mem_fetch *mf) {
-  simt_core_cluster *cluster = m_core->get_cluster();
-  for (int i = 0; i < m_core->get_config()->n_simt_cores_per_cluster; i ++) {
-    shader_core_ctx *core = cluster->get_core(i);
-    // only check the L1 cache of other shader cores within the cluster
+  unsigned cluster_size = m_core->get_config()->rep_cluster_size;
+  unsigned cluster_starting_sid = m_sid / cluster_size * cluster_size;
+  for (int i = cluster_starting_sid; i < cluster_starting_sid 
+                                                    + cluster_size; i ++) {
+    shader_core_ctx *core = m_core->get_gpu()->get_cluster(i)->get_core(0);
     if (core == m_core) continue;
     enum cache_request_status probe_result = core->probe_l1_cache(mf);
     // if the intra cluster probe is a hit
@@ -2008,7 +2009,7 @@ void ldst_unit::check_intra_cluster_replication(mem_fetch *mf) {
       m_L1D->inc_replication_hit();
       return;
     }
-  }  
+  }
 }
 
 bool ldst_unit::constant_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
@@ -2873,6 +2874,12 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.pending_hits);
     fprintf(fout, "\tL1D_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);
+    fprintf(fout, "\tL1D_total_replication_hits = %llu\n", 
+            total_css.replication_hit);
+    if (total_css.misses > 0) {
+      fprintf(fout, "\tL1D_total_replication_rate = %.4lf\n",
+              (double)total_css.replication_hit / (double) total_css.misses);
+    }
     total_css.print_port_stats(fout, "\tL1D_cache");
   }
 

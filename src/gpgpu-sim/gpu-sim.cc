@@ -313,6 +313,12 @@ void shader_core_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-gpgpu_n_cores_per_cluster", OPT_UINT32,
                          &n_simt_cores_per_cluster,
                          "number of simd cores per cluster", "3");
+  option_parser_register(opp, "-gpgpgu_rep_cluster_size", OPT_UINT32, 
+                         &rep_cluster_size, 
+                         "the number of cores within a cluster" 
+                         "when accounting for replication hit",
+                         "4");
+  
   option_parser_register(opp, "-gpgpu_n_cluster_ejection_buffer_size",
                          OPT_UINT32, &n_simt_ejection_buffer_size,
                          "number of packets in ejection buffer", "8");
@@ -2074,7 +2080,7 @@ void gpgpu_sim::print_hit_table(FILE *fout){
   fprintf(fout, "\n========= memory access stats =========\n");
   auto it_pc = access_table.begin();
   for (it_pc = access_table.begin(); it_pc != access_table.end(); it_pc ++) {
-    unsigned long long access_core_dist[29] = {0};
+    unsigned long long access_core_dist[33] = {0};
     unsigned long long total_line_count = 0;
     unsigned long long shared_line_count = 0;
     unsigned long long int total_n_access = 0;
@@ -2109,7 +2115,7 @@ void gpgpu_sim::print_hit_table(FILE *fout){
       total_n_accessing_cluster += n_accessing_cluster;
       total_intra_cluster_reuse_count += intra_cluster_reuse;
     }
-    for (int i = 0; i < 29; i ++) { 
+    for (int i = 0; i < 33; i ++) { 
       fprintf(fout, "%d: %5llu,", i, access_core_dist[i]);
     }
     fprintf(fout, "\n");
@@ -2129,7 +2135,7 @@ void gpgpu_sim::print_hit_table(FILE *fout){
 }
 
 access_entry::access_entry() {
-  for (int i = 0; i < 28; i ++){
+  for (int i = 0; i < 32; i ++){
     hit_dist[i] = 0;
   }
 }
@@ -2148,7 +2154,7 @@ unsigned long long int access_entry::print(FILE * fout,
   shared_count = 0;
   intra_cluster_reuse_count = 0;
   n_accessing_cluster = 0;
-  for (int i = 0; i < 7; i ++) { 
+  for (int i = 0; i < 8; i ++) { 
     unsigned intra_cluster_access = 0;
     for (int j = 0; j < 4; j ++) { 
       if (hit_dist[i * 4 + j] > 0) {

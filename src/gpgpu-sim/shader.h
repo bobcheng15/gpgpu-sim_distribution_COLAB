@@ -1581,6 +1581,7 @@ class shader_core_config : public core_config {
 
   unsigned n_simt_cores_per_cluster;
   unsigned n_simt_clusters;
+  unsigned rep_cluster_size;
   unsigned n_simt_ejection_buffer_size;
   unsigned ldst_unit_response_queue_size;
 
@@ -2112,10 +2113,6 @@ class shader_core_ctx : public core_t {
   }
   bool check_if_non_released_reduction_barrier(warp_inst_t &inst);
 
-  simt_core_cluster *get_cluster() const {
-    return m_cluster;
-  }
-  
   enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
 
  protected:
