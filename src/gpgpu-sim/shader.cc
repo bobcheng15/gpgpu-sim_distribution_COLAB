@@ -1983,7 +1983,8 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
-        if (status == MISS)
+        // only check for intra cluster reuse for global memory read misses
+        if (status == MISS && mf_next->get_access_type() == GLOBAL_ACC_R)
           check_intra_cluster_replication(mf_next);
       }
     }
