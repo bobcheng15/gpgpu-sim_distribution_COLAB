@@ -1983,7 +1983,8 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
-        check_intra_cluster_replication(mf_next);
+        if (status == MISS)
+          check_intra_cluster_replication(mf_next);
       }
     }
     // pipelined cache
