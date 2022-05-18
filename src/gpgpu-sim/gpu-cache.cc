@@ -1690,7 +1690,45 @@ enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
 enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events) {
-  return data_cache::access(addr, mf, time, events);
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  bool wr = mf->get_is_write();
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  enum cache_request_status probe_status =
+      m_tag_array->probe(block_addr, cache_index, mf, true);
+  if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
+    // if this access misses the L1 cache, search for the requesting line in the 
+    // l1 caches of the cores within the same cluster (only for global reads)
+    enum cache_request_status remote_access_status = 
+                              intra_cluster_remote_access(mf);
+    if (remote_access_status == HIT) 
+      return remote_access_status;
+  }
+  enum cache_request_status access_status =
+      process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
+  m_stats.inc_stats(mf->get_access_type(),
+                    m_stats.select_stats_status(probe_status, access_status));
+  m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
+                                                  probe_status, access_status));
+  return access_status;
+}
+
+enum cache_request_status l1_cache::intra_cluster_remote_access(mem_fetch *mf) {
+  unsigned cluster_size = m_gpu->getShaderCoreConfig()->rep_cluster_size;
+  unsigned cluster_starting_sid = m_tag_array->get_core_id() / cluster_size 
+                                  * cluster_size;
+  for (int i = cluster_starting_sid; i < cluster_starting_sid 
+                                                    + cluster_size; i ++) {
+    shader_core_ctx *core = m_gpu->get_cluster(i)->get_core(0);
+    if (i == m_tag_array->get_core_id()) continue;
+    enum cache_request_status probe_result = core->probe_l1_cache(mf);
+    // if the intra cluster probe is a hit
+    if (probe_result == HIT) {
+      inc_replication_hit();
+      return HIT;
+    }
+  }
+  return MISS;
 }
 
 enum cache_request_status l1_cache::probe(mem_fetch *mf) {

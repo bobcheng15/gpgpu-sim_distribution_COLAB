@@ -1369,7 +1369,6 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
-  void check_intra_cluster_replication(mem_fetch *mf);
 };
 
 enum pipeline_stage_name_t {

@@ -1983,8 +1983,6 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
-        if (status == MISS)
-          check_intra_cluster_replication(mf_next);
       }
     }
     // pipelined cache
@@ -1994,22 +1992,6 @@ void ldst_unit::L1_latency_queue_cycle() {
         l1_latency_queue[j][stage] = l1_latency_queue[j][stage + 1];
         l1_latency_queue[j][stage + 1] = NULL;
       }
-  }
-}
-
-void ldst_unit::check_intra_cluster_replication(mem_fetch *mf) {
-  unsigned cluster_size = m_core->get_config()->rep_cluster_size;
-  unsigned cluster_starting_sid = m_sid / cluster_size * cluster_size;
-  for (int i = cluster_starting_sid; i < cluster_starting_sid 
-                                                    + cluster_size; i ++) {
-    shader_core_ctx *core = m_core->get_gpu()->get_cluster(i)->get_core(0);
-    if (core == m_core) continue;
-    enum cache_request_status probe_result = core->probe_l1_cache(mf);
-    // if the intra cluster probe is a hit
-    if (probe_result == HIT) {
-      m_L1D->inc_replication_hit();
-      return;
-    }
   }
 }
 
