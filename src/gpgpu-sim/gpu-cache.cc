@@ -1714,13 +1714,11 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
 }
 
 enum cache_request_status l1_cache::intra_cluster_remote_access(mem_fetch *mf) {
-  unsigned cluster_size = m_gpu->getShaderCoreConfig()->rep_cluster_size;
-  unsigned cluster_starting_sid = m_tag_array->get_core_id() / cluster_size 
-                                  * cluster_size;
-  for (int i = cluster_starting_sid; i < cluster_starting_sid 
-                                                    + cluster_size; i ++) {
-    shader_core_ctx *core = m_gpu->get_cluster(i)->get_core(0);
-    if (i == m_tag_array->get_core_id()) continue;
+  unsigned cluster_size = m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster;
+  unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
+  for (int i = 0; i < cluster_size; i ++) { 
+    shader_core_ctx *core = m_gpu->get_cluster(cluster_id)->get_core(i);;
+    if (core->get_sid() == m_tag_array->get_core_id()) continue;
     enum cache_request_status probe_result = core->probe_l1_cache(mf);
     // if the intra cluster probe is a hit
     if (probe_result == HIT) {
