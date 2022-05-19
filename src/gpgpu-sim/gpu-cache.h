@@ -849,6 +849,7 @@ class tag_array {
   void update_cache_parameters(cache_config &config);
   void add_pending_line(mem_fetch *mf);
   void remove_pending_line(mem_fetch *mf);
+  int get_core_id() { return m_core_id; }
 
  protected:
   // This constructor is intended for use only from derived classes that wish to
@@ -1558,6 +1559,7 @@ class l1_cache : public data_cache {
                                            std::list<cache_event> &events);
   
   enum cache_request_status probe(mem_fetch *mf);
+  void check_intra_cluster_replication(mem_fetch *mf);
   void inc_replication_hit();
 
  protected:
