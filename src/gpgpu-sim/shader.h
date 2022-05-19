@@ -1580,7 +1580,6 @@ class shader_core_config : public core_config {
 
   unsigned n_simt_cores_per_cluster;
   unsigned n_simt_clusters;
-  unsigned rep_cluster_size;
   unsigned n_simt_ejection_buffer_size;
   unsigned ldst_unit_response_queue_size;
 

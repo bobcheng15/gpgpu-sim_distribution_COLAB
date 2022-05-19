@@ -313,11 +313,6 @@ void shader_core_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-gpgpu_n_cores_per_cluster", OPT_UINT32,
                          &n_simt_cores_per_cluster,
                          "number of simd cores per cluster", "3");
-  option_parser_register(opp, "-gpgpu_rep_cluster_size", OPT_UINT32, 
-                         &rep_cluster_size, 
-                         "the number of cores within a cluster" 
-                         "when accounting for replication hit",
-                         "4");
   
   option_parser_register(opp, "-gpgpu_n_cluster_ejection_buffer_size",
                          OPT_UINT32, &n_simt_ejection_buffer_size,
