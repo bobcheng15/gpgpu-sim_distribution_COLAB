@@ -4181,6 +4181,15 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_stats = stats;
   m_memory_stats = mstats;
   m_mem_config = mem_config;
+  // instantiate the per cluster sharing directory here
+  if (!m_config->m_L1S_config.disabled()) {
+    char L1S_name[STRSIZE];
+    snprintf(L1S_name, STRSIZE, "L1S_%03d", m_cluster_id);
+    m_L1S = new sharing_directory(L1S_name, m_config->m_L1S_config, m_cluster_id,
+                                  get_shader_constant_cache_id(), NULL, 
+                                  IN_L1C_MISS_QUEUE, gpu);
+  }
+
 }
 
 void simt_core_cluster::core_cycle() {
@@ -4379,6 +4388,10 @@ void simt_core_cluster::icnt_cycle() {
         m_response_fifo.pop_front();
         m_memory_stats->memlatstat_read_done(mf);
         m_core[cid]->accept_ldst_unit_response(mf);
+        if (mf->get_access_type() == GLOBAL_ACC_R) {
+          m_L1S->install_directory_entry(mf, m_gpu->gpu_sim_cycle + 
+                                         m_gpu->gpu_tot_sim_cycle);
+        }
       }
     }
   }

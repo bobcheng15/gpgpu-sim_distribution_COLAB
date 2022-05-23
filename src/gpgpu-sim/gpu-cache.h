@@ -133,6 +133,8 @@ struct cache_block_t {
                               mem_access_sector_mask_t sector_mask) = 0;
   virtual bool is_readable(mem_access_sector_mask_t sector_mask) = 0;
   virtual void print_status() = 0;
+  virtual unsigned get_sid() = 0;
+  virtual void set_sid(unsigned sid) = 0;
   virtual ~cache_block_t() {}
 
   new_addr_type m_tag;
@@ -148,6 +150,7 @@ struct line_cache_block : public cache_block_t {
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
     m_readable = true;
+    m_sid = 0;
   }
   void allocate(new_addr_type tag, new_addr_type block_addr, unsigned time,
                 mem_access_sector_mask_t sector_mask) {
@@ -159,6 +162,7 @@ struct line_cache_block : public cache_block_t {
     m_status = RESERVED;
     m_ignore_on_fill_status = false;
     m_set_modified_on_fill = false;
+    m_sid = 0;
   }
   void fill(unsigned time, mem_access_sector_mask_t sector_mask) {
     // if(!m_ignore_on_fill_status)
@@ -210,6 +214,8 @@ struct line_cache_block : public cache_block_t {
   virtual void print_status() {
     printf("m_block_addr is %llu, status = %u\n", m_block_addr, m_status);
   }
+  virtual void set_sid(unsigned sid) { m_sid = sid; }
+  virtual unsigned get_sid() { return m_sid; }
 
  private:
   unsigned long long m_alloc_time;
@@ -219,6 +225,7 @@ struct line_cache_block : public cache_block_t {
   bool m_ignore_on_fill_status;
   bool m_set_modified_on_fill;
   bool m_readable;
+  unsigned m_sid;
 };
 
 struct sector_cache_block : public cache_block_t {
@@ -388,6 +395,14 @@ struct sector_cache_block : public cache_block_t {
   virtual void print_status() {
     printf("m_block_addr is %llu, status = %u %u %u %u\n", m_block_addr,
            m_status[0], m_status[1], m_status[2], m_status[3]);
+  }
+
+  virtual unsigned get_sid() { 
+    return 0;
+  }
+
+  virtual void set_sid(unsigned sid) { 
+    return;
   }
 
  private:
@@ -782,6 +797,7 @@ class cache_config {
   friend class l1_cache;
   friend class l2_cache;
   friend class memory_sub_partition;
+  friend class sharing_directory;
 };
 
 class l1d_cache_config : public cache_config {
@@ -1562,8 +1578,6 @@ class l1_cache : public data_cache {
 
   void inc_replication_hit();
 
-  enum cache_request_status intra_cluster_remote_access(mem_fetch *mf);
-
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
            mem_fetch_interface *memport, mem_fetch_allocator *mfcreator,
@@ -1793,5 +1807,22 @@ class tex_cache : public cache_t {
 
   extra_mf_fields_lookup m_extra_mf_fields;
 };
+
+class sharing_directory : public read_only_cache { 
+ public: 
+  sharing_directory(const char *name, cache_config &config, int cluster_id,
+                  int type_id, mem_fetch_interface *memport,
+                  enum mem_fetch_status status, class gpgpu_sim *gpu)
+    : read_only_cache(name, config, cluster_id, type_id, memport, status) {
+      m_gpu = gpu;
+  }
+  virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
+                                           unsigned time);
+  void install_directory_entry (mem_fetch *mf, unsigned time);
+ protected:
+  gpgpu_sim *m_gpu;
+};
+
+
 
 #endif

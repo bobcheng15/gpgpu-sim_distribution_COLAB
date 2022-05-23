@@ -1698,11 +1698,17 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
       m_tag_array->probe(block_addr, cache_index, mf, true);
   if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
     // if this access misses the L1 cache, search for the requesting line in the 
-    // l1 caches of the cores within the same cluster (only for global reads)
+    // in the directory
+    unsigned cluster_size = m_gpu->getShaderCoreConfig()
+                            ->n_simt_cores_per_cluster;  
+    unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
+    sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
     enum cache_request_status remote_access_status = 
-                              intra_cluster_remote_access(mf);
-    if (remote_access_status == HIT) 
+                              L1S->access(mf->get_addr(), mf, time);
+    if (remote_access_status == HIT) {
+      inc_replication_hit();
       return remote_access_status;
+    }
   }
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
@@ -1711,22 +1717,6 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
                                                   probe_status, access_status));
   return access_status;
-}
-
-enum cache_request_status l1_cache::intra_cluster_remote_access(mem_fetch *mf) {
-  unsigned cluster_size = m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster;
-  unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
-  for (int i = 0; i < cluster_size; i ++) { 
-    shader_core_ctx *core = m_gpu->get_cluster(cluster_id)->get_core(i);;
-    if (core->get_sid() == m_tag_array->get_core_id()) continue;
-    enum cache_request_status probe_result = core->probe_l1_cache(mf);
-    // if the intra cluster probe is a hit
-    if (probe_result == HIT) {
-      inc_replication_hit();
-      return HIT;
-    }
-  }
-  return MISS;
 }
 
 enum cache_request_status l1_cache::probe(mem_fetch *mf) {
@@ -1893,4 +1883,58 @@ void tex_cache::display_state(FILE *fp) const {
     f.m_request->print(fp, false);
   }
 }
+
+enum cache_request_status sharing_directory::access(new_addr_type addr, 
+                                                    mem_fetch *mf, 
+                                                    unsigned time) {
+      
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  assert(m_config.m_write_policy == READ_ONLY);
+  assert(!mf->get_is_write());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  // check whether the desired cache line is in the cache
+  enum cache_request_status status =
+                  m_tag_array->probe(block_addr, cache_index, mf);
+  enum cache_request_status remote_access_result = MISS;
+  assert(status == HIT || status == MISS);
+  if (status == HIT) {
+    // obtain the core id pointed to by the directory entry
+    cache_block_t *line = m_tag_array->get_block(cache_index);
+    unsigned cluster_id = m_tag_array->get_core_id();    
+    unsigned remote_core_cid = line->get_sid();
+    shader_core_ctx *core = m_gpu->get_cluster(cluster_id)
+                            ->get_core(remote_core_cid);
+    // probing the remote core l1 for remote hit
+    enum cache_request_status remote_probe_status = core->probe_l1_cache(mf);
+    // the desired line is in remote core's l1
+    if (remote_probe_status == HIT) { 
+      //update LRU state
+      remote_access_result = m_tag_array->access(block_addr, time, 
+                                                 cache_index, mf);
+      assert(remote_access_result == HIT);
+    }  
+    else {
+      // false positive! invalidate the directory entry
+      line->set_status(INVALID, mf->get_access_sector_mask());
+    }
+  }
+  else if (status == MISS) { 
+    // do nothing on directory miss 
+  }
+  return remote_access_result;
+}
+
+void sharing_directory::install_directory_entry (mem_fetch *mf, unsigned time) {
+  m_tag_array->fill(mf->get_addr(), time, mf);
+  unsigned cache_index = (unsigned) -1;
+  enum cache_request_status probe_status = m_tag_array->probe(mf->get_addr(), cache_index, mf);
+  assert(probe_status == HIT);
+  unsigned cid = mf->get_sid() % 
+                 (m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster);
+  m_tag_array->get_block(cache_index)->set_sid(cid);
+}
+
+
 /******************************************************************************************************************************************/
+

@@ -237,6 +237,12 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<"
       "merge>,<mq>} ",
       "64:64:2,L:R:f:N,A:2:32,4");
+  option_parser_register(opp, "-gpgpu_sharing_directory:l1", OPT_CSTR, 
+                         &m_L1S_config.m_config_string, 
+                         "per-cluster l1 sharing directory (READ-ONLY) config "
+                         "{<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>"
+                         ",<mshr>:<N>:<merge>,<mq>} ",
+                         "64:128:4,L:R:f:N,A:2:32,4");
   option_parser_register(opp, "-gpgpu_cache:il1", OPT_CSTR,
                          &m_L1I_config.m_config_string,
                          "shader L1 instruction cache config "
