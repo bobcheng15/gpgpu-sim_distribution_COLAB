@@ -2907,6 +2907,39 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     fprintf(fout, "\tL1T_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);
   }
+
+  // L1S
+  if (!m_shader_config->m_L1S_config.disabled()) {
+    total_css.clear();
+    css.clear();
+    fprintf(fout, "L1S_cache:\n");
+    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+      m_cluster[i]->get_L1S_sub_stats(css);
+      fprintf(stdout,
+              "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
+              "%.3lf, False_positive = %llu, fp_rate = %.4lf\n",
+              i, css.accesses, css.misses,
+              (double)css.misses / (double)css.accesses, css.pending_hits,
+              (double)css.pending_hits / (double)css.accesses);
+
+      total_css += css;
+    }
+    fprintf(fout, "\tL1S_total_cache_accesses = %llu\n", total_css.accesses);
+    fprintf(fout, "\tL1S_total_cache_misses = %llu\n", total_css.misses);
+    if (total_css.accesses > 0) {
+      fprintf(fout, "\tL1S_total_cache_miss_rate = %.4lf\n",
+              (double)total_css.misses / (double)total_css.accesses);
+    }
+    fprintf(fout, "\tL1S_total_cache_false_positives = %llu\n",
+            total_css.pending_hits);
+    if (total_css.accesses > 0) {
+      fprintf(fout, "\tL1S_total_cache_fp_rate = %.4lf\n",
+              (double)total_css.pending_hits / (double)total_css.accesses);
+    }
+    fprintf(fout, "\tL1S_total_cache_reservation_fails = %llu\n",
+            total_css.res_fails);
+    //total_css.print_port_stats(fout, "\tL1S_cache");
+  }
 }
 
 void gpgpu_sim::shader_print_l1_miss_stat(FILE *fout) const {
@@ -4480,6 +4513,12 @@ void simt_core_cluster::get_L1D_sub_stats(struct cache_sub_stats &css) const {
     m_core[i]->get_L1D_sub_stats(temp_css);
     total_css += temp_css;
   }
+  css = total_css;
+}
+void simt_core_cluster::get_L1S_sub_stats(struct cache_sub_stats &css) const {
+  struct cache_sub_stats total_css;
+  total_css.clear();
+  m_L1S->get_sub_stats(total_css);
   css = total_css;
 }
 void simt_core_cluster::get_L1C_sub_stats(struct cache_sub_stats &css) const {

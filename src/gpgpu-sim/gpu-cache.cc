@@ -1890,6 +1890,7 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
       
   assert(mf->get_data_size() <= m_config.get_atom_sz());
   assert(m_config.m_write_policy == READ_ONLY);
+  assert(mf->get_access_type() == GLOBAL_ACC_R);
   assert(!mf->get_is_write());
   new_addr_type block_addr = m_config.block_addr(addr);
   unsigned cache_index = (unsigned)-1;
@@ -1913,13 +1914,18 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
       remote_access_result = m_tag_array->access(block_addr, time, 
                                                  cache_index, mf);
       assert(remote_access_result == HIT);
+      m_stats.inc_stats(mf->get_access_type(), HIT);
     }  
     else {
       // false positive! invalidate the directory entry
       line->set_status(INVALID, mf->get_access_sector_mask());
+      // use pending hit to represent false positive for now...
+      m_stats.inc_stats(mf->get_access_type(), HIT_RESERVED);
     }
   }
-  else if (status == MISS) { 
+  else {
+    assert(status == MISS);
+    m_stats.inc_stats(mf->get_access_type(), MISS);
     // do nothing on directory miss 
   }
   return remote_access_result;
