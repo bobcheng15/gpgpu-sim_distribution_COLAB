@@ -2917,10 +2917,16 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       m_cluster[i]->get_L1S_sub_stats(css);
       fprintf(stdout,
               "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-              "%.3lf, False_positive = %llu, fp_rate = %.4lf\n",
+              "%.3lf, False_positive = %llu, fp_rate = %.4lf, alloc_lines = "
+              "%llu, used_lines = %llu, use_rate = %.4lf, repeated_lines = "
+              "%llu, repeated_rate = %.4lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              (double)css.pending_hits / (double)css.accesses);
+              (double)css.pending_hits / (double)css.accesses,
+              css.allocated_lines, css.used_lines, 
+              (double)css.used_lines / (double)css.allocated_lines, 
+              css.repeated_alloc_lines, 
+              (double)css.repeated_alloc_lines / (double)css.allocated_lines);
 
       total_css += css;
     }

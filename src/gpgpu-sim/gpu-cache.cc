@@ -609,6 +609,9 @@ cache_stats::cache_stats() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  m_allocated_lines = 0;
+  m_used_lines = 0;
+  m_repeated_alloc_lines = 0;
 }
 
 void cache_stats::clear() {
@@ -623,6 +626,9 @@ void cache_stats::clear() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  m_allocated_lines = 0;
+  m_used_lines = 0;
+  m_repeated_alloc_lines = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -662,6 +668,17 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
 
 void cache_stats::inc_replication_hit() {
   m_replication_hit ++;
+}
+void cache_stats::inc_allocated_line() {
+  m_allocated_lines ++;
+}
+
+void cache_stats::inc_used_line() {
+  m_used_lines ++;
+}
+
+void cache_stats::inc_repeated_line() {
+  m_repeated_alloc_lines ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -741,6 +758,12 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
   ret.m_replication_hit = 
       m_replication_hit + cs.m_replication_hit;
+  ret.m_allocated_lines = 
+      m_allocated_lines + cs.m_allocated_lines;
+  ret.m_used_lines =
+      m_used_lines + cs.m_used_lines;
+  ret.m_repeated_alloc_lines =
+      m_repeated_alloc_lines + cs.m_repeated_alloc_lines;
   return ret;
 }
 
@@ -764,6 +787,9 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_data_port_busy_cycles += cs.m_cache_data_port_busy_cycles;
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
   m_replication_hit += cs.m_replication_hit;
+  m_allocated_lines += cs.m_allocated_lines;
+  m_used_lines += cs.m_used_lines;
+  m_repeated_alloc_lines += cs.m_repeated_alloc_lines;
   return *this;
 }
 
@@ -871,6 +897,9 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
   t_css.replication_hit = m_replication_hit;
+  t_css.allocated_lines = m_allocated_lines;
+  t_css.used_lines = m_used_lines;
+  t_css.repeated_alloc_lines = m_repeated_alloc_lines;
 
   css = t_css;
 }
@@ -1915,6 +1944,10 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
                                                  cache_index, mf);
       assert(remote_access_result == HIT);
       m_stats.inc_stats(mf->get_access_type(), HIT);
+      if (line->get_been_read() == false) {
+        line->set_been_read();
+        m_stats.inc_used_line();
+      }
     }  
     else {
       // false positive! invalidate the directory entry
@@ -1933,13 +1966,17 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
 
 void sharing_directory::install_directory_entry (mem_fetch *mf, unsigned time) {
   unsigned cache_index = (unsigned) -1;
+  if (m_tag_array->probe(mf->get_addr(), cache_index, mf) == HIT)
+    m_stats.inc_repeated_line();
   m_tag_array->fill(mf->get_addr(), time, mf);
   enum cache_request_status probe_status = m_tag_array->probe(mf->get_addr(), cache_index, mf);
   assert(probe_status == HIT);
   unsigned cid = mf->get_sid() % 
                  (m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster);
   m_tag_array->get_block(cache_index)->set_sid(cid);
+  m_stats.inc_allocated_line();
 }
+
 
 /******************************************************************************************************************************************/
 
