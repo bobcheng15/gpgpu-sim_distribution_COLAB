@@ -56,6 +56,7 @@ mem_fetch *shader_core_mem_fetch_allocator::alloc(
     new_addr_type addr, mem_access_type type, unsigned size, bool wr,
     unsigned long long cycle) const {
   mem_access_t access(type, addr, size, wr, m_memory_config->gpgpu_ctx);
+  
   mem_fetch *mf =
       new mem_fetch(access, NULL, wr ? WRITE_PACKET_SIZE : READ_PACKET_SIZE, -1,
                     m_core_id, m_cluster_id, m_memory_config, cycle);
@@ -94,6 +95,7 @@ void shader_core_ctx::create_front_pipeline() {
   for (int j = 0; j < m_config->m_specialized_unit.size(); j++) {
     m_pipeline_reg.push_back(
         register_set(m_config->m_specialized_unit[j].id_oc_spec_reg_width,
+  
                      m_config->m_specialized_unit[j].name));
     m_config->m_specialized_unit[j].ID_OC_SPEC_ID = m_pipeline_reg.size() - 1;
     m_specilized_dispatch_reg.push_back(
@@ -2917,10 +2919,16 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       m_cluster[i]->get_L1S_sub_stats(css);
       fprintf(stdout,
               "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-              "%.3lf, False_positive = %llu, fp_rate = %.4lf\n",
+              "%.3lf, False_positive = %llu, fp_rate = %.4lf, alloc_lines = "
+              "%llu, used_lines = %llu, use_rate = %.4lf, repeated_lines = "
+              "%llu, repeated_rate = %.4lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              (double)css.pending_hits / (double)css.accesses);
+              (double)css.pending_hits / (double)css.accesses,
+              css.allocated_lines, css.used_lines, 
+              (double)css.used_lines / (double)css.allocated_lines, 
+              css.repeated_alloc_lines, 
+              (double)css.repeated_alloc_lines / (double)css.allocated_lines);
 
       total_css += css;
     }
