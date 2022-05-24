@@ -515,7 +515,7 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         if (mf->get_access_type() == GLOBAL_ACC_R) {
           m_gpu->inc_hit_dist(mf->get_pc(),
                              block_addr(mf->get_addr()), 
-                             mf->get_tpc());
+                             mf->get_sid());
         }
         bool write_sent = was_write_sent(events);
         bool read_sent = was_read_sent(events);

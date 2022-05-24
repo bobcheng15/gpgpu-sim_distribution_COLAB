@@ -1932,15 +1932,14 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
 }
 
 void sharing_directory::install_directory_entry (mem_fetch *mf, unsigned time) {
-  m_tag_array->fill(mf->get_addr(), time, mf);
   unsigned cache_index = (unsigned) -1;
+  m_tag_array->fill(mf->get_addr(), time, mf);
   enum cache_request_status probe_status = m_tag_array->probe(mf->get_addr(), cache_index, mf);
   assert(probe_status == HIT);
   unsigned cid = mf->get_sid() % 
                  (m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster);
   m_tag_array->get_block(cache_index)->set_sid(cid);
 }
-
 
 /******************************************************************************************************************************************/
 

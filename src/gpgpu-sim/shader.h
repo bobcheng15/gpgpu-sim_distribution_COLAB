@@ -54,6 +54,7 @@
 #include "stack.h"
 #include "stats.h"
 #include "traffic_breakdown.h"
+#include <random>
 
 #define NO_OP_FLAG 0xFF
 
@@ -2370,6 +2371,7 @@ class simt_core_cluster {
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
+  std::default_random_engine rng;
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {

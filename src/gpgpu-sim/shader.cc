@@ -4222,6 +4222,7 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                                   get_shader_constant_cache_id(), NULL, 
                                   IN_L1C_MISS_QUEUE, gpu);
   }
+  rng.seed(m_cluster_id);
 
 }
 
@@ -4422,8 +4423,12 @@ void simt_core_cluster::icnt_cycle() {
         m_memory_stats->memlatstat_read_done(mf);
         m_core[cid]->accept_ldst_unit_response(mf);
         if (mf->get_access_type() == GLOBAL_ACC_R) {
-          m_L1S->install_directory_entry(mf, m_gpu->gpu_sim_cycle + 
-                                         m_gpu->gpu_tot_sim_cycle);
+          double remote_rate = m_gpu->get_load_remote_rate(mf->get_pc());
+          std::uniform_real_distribution<double> dist(0.0, 1.0);
+          if (dist(rng) < remote_rate) {
+            m_L1S->install_directory_entry(mf, m_gpu->gpu_sim_cycle + 
+                                           m_gpu->gpu_tot_sim_cycle);
+          }
         }
       }
     }

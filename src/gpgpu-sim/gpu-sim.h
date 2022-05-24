@@ -535,6 +535,7 @@ class gpgpu_sim : public gpgpu_t {
 
   void perf_memcpy_to_gpu(size_t dst_start_addr, size_t count);
 
+  simt_core_cluster * get_cluster(int idx) const { return m_cluster[idx]; }
   // The next three functions added to be used by the functional simulation
   // function
 
@@ -565,10 +566,8 @@ class gpgpu_sim : public gpgpu_t {
   // backward pointer
   class gpgpu_context *gpgpu_ctx;
   void inc_hit_dist(address_type pc, new_addr_type addr, unsigned this_core_idx);
+  double get_load_remote_rate(address_type pc);
   void print_hit_table(FILE *fout);
-  class simt_core_cluster *get_cluster(unsigned cluster_idx) {
-    return m_cluster[cluster_idx];
-  }
 
  private:
   // clocks
@@ -642,7 +641,8 @@ class gpgpu_sim : public gpgpu_t {
   void clear_executed_kernel_info();  //< clear the kernel information after
                                       // stat printout
   virtual void createSIMTCluster() = 0;
-  std::map<address_type, std::map<new_addr_type, access_entry *> *> access_table;
+  std::map<address_type, std::map<new_addr_type, access_entry>> access_table;
+  std::map<address_type, unsigned long long> n_remote_access_table;
 
  public:
   unsigned long long gpu_sim_insn;
@@ -704,13 +704,13 @@ class exec_gpgpu_sim : public gpgpu_sim {
 class access_entry { 
  public:   
   access_entry();
-  void inc_hit_dist(unsigned core_idx);
+  bool inc_hit_dist(unsigned core_idx, bool first_access);
   unsigned long long int print(FILE * fout, 
                                new_addr_type addr, 
-                               unsigned & shared_count,
-                               unsigned & intra_cluster_reuse_count,
-                               unsigned & n_accessing_cluster);
+                               unsigned & shared_count);
+  bool get_is_shared() const { return shared; }
  private: 
   unsigned int hit_dist[32];
+  bool shared;
 };
 #endif

@@ -237,8 +237,8 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       " {<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>,<mshr>:<N>:<"
       "merge>,<mq>} ",
       "64:64:2,L:R:f:N,A:2:32,4");
-  option_parser_register(opp, "-gpgpu_sharing_directory:l1", OPT_CSTR, 
-                         &m_L1S_config.m_config_string, 
+  option_parser_register(opp, "-gpgpu_sharing_directory:l1", OPT_CSTR,
+                         &m_L1S_config.m_config_string,
                          "per-cluster l1 sharing directory (READ-ONLY) config "
                          "{<nsets>:<bsize>:<assoc>,<rep>:<wr>:<alloc>:<wr_alloc>"
                          ",<mshr>:<N>:<merge>,<mq>} ",
@@ -319,7 +319,6 @@ void shader_core_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-gpgpu_n_cores_per_cluster", OPT_UINT32,
                          &n_simt_cores_per_cluster,
                          "number of simd cores per cluster", "3");
-  
   option_parser_register(opp, "-gpgpu_n_cluster_ejection_buffer_size",
                          OPT_UINT32, &n_simt_ejection_buffer_size,
                          "number of packets in ejection buffer", "8");
@@ -1312,6 +1311,7 @@ void gpgpu_sim::gpu_print_stat() {
   print_hit_table(stdout);
   // clear the mem access table
   access_table.clear();
+  n_remote_access_table.clear();
   cache_stats core_cache_stats;
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
@@ -2067,14 +2067,28 @@ void gpgpu_sim::inc_hit_dist(address_type pc,
                             new_addr_type addr, 
                             unsigned this_core_idx) {
   if (access_table.find(pc) == access_table.end()){
-    access_table[pc] = new std::map<new_addr_type, access_entry *>();
+    
+    access_table.emplace(pc, std::map<new_addr_type, access_entry>());
   }
-  auto cur_table_entry = access_table[pc];
-  if (cur_table_entry->find(addr) == cur_table_entry->end()) {
-    (*cur_table_entry)[addr] = new access_entry();
+  std::map<new_addr_type, access_entry>& cur_table_entry = access_table[pc];
+  bool first_access = false;
+  if (cur_table_entry.find(addr) == cur_table_entry.end()) {
+    cur_table_entry.emplace(addr, access_entry());
+    first_access = true;
   }
-  access_entry * cur_access_entry = (*cur_table_entry)[addr];
-  cur_access_entry->inc_hit_dist(this_core_idx);
+  access_entry& cur_access_entry = cur_table_entry[addr];
+  if (cur_access_entry.inc_hit_dist(this_core_idx, first_access)) {
+    if (n_remote_access_table.find(pc) == n_remote_access_table.end()) {
+      n_remote_access_table[pc] = 1;
+    }  
+    else {
+      n_remote_access_table[pc] ++;
+    }
+  }
+}
+
+double gpgpu_sim::get_load_remote_rate(address_type pc) {
+  return (double)n_remote_access_table[pc] / (double)access_table[pc].size();
 }
 
 void gpgpu_sim::print_hit_table(FILE *fout){
@@ -2082,90 +2096,73 @@ void gpgpu_sim::print_hit_table(FILE *fout){
   auto it_pc = access_table.begin();
   for (it_pc = access_table.begin(); it_pc != access_table.end(); it_pc ++) {
     unsigned long long access_core_dist[33] = {0};
-    unsigned long long total_line_count = 0;
-    unsigned long long shared_line_count = 0;
     unsigned long long int total_n_access = 0;
     unsigned long long int total_sharing_cores = 0;
-    unsigned long long int total_intra_cluster_reuse_count = 0;
-    unsigned long long int total_n_accessing_cluster = 0;
     address_type cur_pc = it_pc->first;
     fprintf(fout, "pc =  %5u \n", cur_pc);
-    auto * cur_table_entry = it_pc->second;
-    auto it = cur_table_entry->begin();
-    for (it = cur_table_entry->begin(); it != cur_table_entry->end();
+    std::map<new_addr_type, access_entry>& cur_table_entry = it_pc->second;
+    auto it = cur_table_entry.begin();
+    for (it = cur_table_entry.begin(); it != cur_table_entry.end();
                 it ++) {
-      total_line_count ++;
-      access_entry * access_info = NULL;
-      new_addr_type addr;
-      addr = it->first;
-      access_info = it->second;
-      assert(access_info != NULL);
+      new_addr_type addr = it->first;
+      access_entry& access_info = it->second;
       unsigned shared_count = 0;
-      unsigned intra_cluster_reuse = 0;
-      unsigned n_accessing_cluster = 0;
-      unsigned long long int n_access = 
-                             access_info->print(fout, addr, shared_count,
-                                                intra_cluster_reuse,
-                                                n_accessing_cluster);
+      unsigned long long int n_access = access_info.print(fout, 
+                                                          addr, shared_count);
       if (shared_count > 1) {
-        shared_line_count ++;
+        assert(access_info.get_is_shared());
         total_n_access += n_access;
         total_sharing_cores += shared_count;
       }
+      else {
+        assert(!access_info.get_is_shared());
+      }
       access_core_dist[shared_count] ++;
-      total_n_accessing_cluster += n_accessing_cluster;
-      total_intra_cluster_reuse_count += intra_cluster_reuse;
     }
     for (int i = 0; i < 33; i ++) { 
       fprintf(fout, "%d: %5llu,", i, access_core_dist[i]);
     }
     fprintf(fout, "\n");
     fprintf(fout, "n_access = %5llu, n_remote_access = %5llu,"
-                  "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n, "
-                  "n_intra_cluster_reuse = %5llu, "
-                  "n_accessing_clusters = %5llu, "
-                  "intra_cluster_reuse_rate = %.4lf\n"
-                  , total_line_count, shared_line_count, 
-                  (double) shared_line_count / (double) total_line_count,
-                  (double) total_n_access / (double) total_sharing_cores,
-                  total_intra_cluster_reuse_count, 
-                  total_n_accessing_cluster,
-                  (double) total_intra_cluster_reuse_count / (double) total_n_accessing_cluster); 
-  }
-    
+                  "remote_rate = %.4lf, avg_n_l2_hit = %.4lf\n"
+                  , access_table[cur_pc].size(), 
+                  n_remote_access_table[cur_pc], 
+                  get_load_remote_rate(cur_pc),
+                  (double) total_n_access / (double) total_sharing_cores); 
+    cur_table_entry.clear();
+  }   
 }
 
 access_entry::access_entry() {
   for (int i = 0; i < 32; i ++){
     hit_dist[i] = 0;
   }
+  shared = false;
 }
 
-void access_entry::inc_hit_dist(unsigned core_idx){
+bool access_entry::inc_hit_dist(unsigned core_idx, bool first_access){
+  // if this is the first time this line is brought into the l2cache, 
+  // it is impossible for us to determine whether it is shared or not.
+  if (!first_access && !shared && hit_dist[core_idx] == 0){
+    shared = true;
+    hit_dist[core_idx] ++;
+    // if the line status flip from false to true, return true;
+    return true;
+  }
   hit_dist[core_idx] ++;
+  return false;
 }
+
 
 unsigned long long int access_entry::print(FILE * fout, 
                            new_addr_type addr, 
-                           unsigned & shared_count,
-                           unsigned & intra_cluster_reuse_count,
-                           unsigned & n_accessing_cluster) {
+                           unsigned & shared_count) {
   //fprintf(fout, "addr = %7llu,", addr);
   unsigned long long int total_access_count = 0;
   shared_count = 0;
-  intra_cluster_reuse_count = 0;
-  n_accessing_cluster = 0;
-  for (int i = 0; i < 8; i ++) { 
-    unsigned intra_cluster_access = 0;
-    for (int j = 0; j < 4; j ++) { 
-      if (hit_dist[i * 4 + j] > 0) {
-        shared_count ++;
-        intra_cluster_access ++;
-      }
-      total_access_count += hit_dist[i * 4 + j];
-    }
-    if (intra_cluster_access > 1) intra_cluster_reuse_count ++;
-    if (intra_cluster_access > 0) n_accessing_cluster ++;
+  for (int i = 0; i < 32; i ++) { 
+    if (hit_dist[i] !=  0) shared_count ++;
+    total_access_count += hit_dist[i];
   }
   //fprintf(fout, "sharing_core: %2u\n", shared_count);
   return total_access_count;
