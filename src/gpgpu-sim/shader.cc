@@ -2841,11 +2841,13 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
               "%.3lf, Pending_hits = %llu, Reservation_fails = %llu, "
-              "replication_hits = %llu, replication_rate = %.3lf\n",
+              "potential_replication_hit = %llu, replication_hits = %llu, "
+              "replication_capture_rate = %.4lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              css.res_fails, css.replication_hit, 
-              (double)css.replication_hit / (double)css.misses);
+              css.res_fails, css.potential_replication_hit, css.replication_hit, 
+              (double)css.replication_hit / 
+              (double)css.potential_replication_hit);
 
       total_css += css;
     }
@@ -2861,9 +2863,12 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.res_fails);
     fprintf(fout, "\tL1D_total_replication_hits = %llu\n", 
             total_css.replication_hit);
-    if (total_css.misses > 0) {
+    fprintf(fout, "\tL1D_total_potential_replication_hits = %llu\n",
+            total_css.potential_replication_hit);
+    if (total_css.potential_replication_hit > 0) {
       fprintf(fout, "\tL1D_total_replication_rate = %.4lf\n",
-              (double)total_css.replication_hit / (double) total_css.misses);
+              (double)total_css.replication_hit / 
+              (double) total_css.potential_replication_hit);
     }
     total_css.print_port_stats(fout, "\tL1D_cache");
   }
@@ -2943,6 +2948,14 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     if (total_css.accesses > 0) {
       fprintf(fout, "\tL1S_total_cache_fp_rate = %.4lf\n",
               (double)total_css.pending_hits / (double)total_css.accesses);
+    }
+    fprintf(fout, "\tL1S_total_cache_alloc_lines = %llu\n",
+            total_css.allocated_lines);
+    fprintf(fout, "\tL1S_total_cache_used_lines = %llu\n", 
+            total_css.used_lines);
+    if (total_css.allocated_lines > 0) {
+        fprintf(fout, "\tL1S_total_use_rate = %.4lf\n",
+                (double)total_css.used_lines / (double)total_css.allocated_lines);
     }
     fprintf(fout, "\tL1S_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);

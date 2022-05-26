@@ -609,6 +609,7 @@ cache_stats::cache_stats() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  m_potential_replication_hit = 0;
   m_allocated_lines = 0;
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
@@ -626,6 +627,7 @@ void cache_stats::clear() {
   m_cache_data_port_busy_cycles = 0;
   m_cache_fill_port_busy_cycles = 0;
   m_replication_hit = 0;
+  m_potential_replication_hit = 0;
   m_allocated_lines = 0;
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
@@ -669,6 +671,11 @@ void cache_stats::inc_fail_stats(int access_type, int fail_outcome) {
 void cache_stats::inc_replication_hit() {
   m_replication_hit ++;
 }
+
+void cache_stats::inc_potential_replication_hit() {
+  m_potential_replication_hit ++; 
+}
+
 void cache_stats::inc_allocated_line() {
   m_allocated_lines ++;
 }
@@ -758,6 +765,8 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_cache_fill_port_busy_cycles + cs.m_cache_fill_port_busy_cycles;
   ret.m_replication_hit = 
       m_replication_hit + cs.m_replication_hit;
+  ret.m_potential_replication_hit = 
+      m_potential_replication_hit + cs.m_potential_replication_hit;
   ret.m_allocated_lines = 
       m_allocated_lines + cs.m_allocated_lines;
   ret.m_used_lines =
@@ -787,6 +796,7 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_cache_data_port_busy_cycles += cs.m_cache_data_port_busy_cycles;
   m_cache_fill_port_busy_cycles += cs.m_cache_fill_port_busy_cycles;
   m_replication_hit += cs.m_replication_hit;
+  m_potential_replication_hit += cs.m_potential_replication_hit;
   m_allocated_lines += cs.m_allocated_lines;
   m_used_lines += cs.m_used_lines;
   m_repeated_alloc_lines += cs.m_repeated_alloc_lines;
@@ -897,6 +907,7 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.data_port_busy_cycles = m_cache_data_port_busy_cycles;
   t_css.fill_port_busy_cycles = m_cache_fill_port_busy_cycles;
   t_css.replication_hit = m_replication_hit;
+  t_css.potential_replication_hit = m_potential_replication_hit;
   t_css.allocated_lines = m_allocated_lines;
   t_css.used_lines = m_used_lines;
   t_css.repeated_alloc_lines = m_repeated_alloc_lines;
@@ -1726,6 +1737,9 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
   if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
+    // probe all other caches in the same cluster to check for replication hits
+    // that is potentially capturable by the directory.
+    intra_cluster_remote_access(mf);
     // if this access misses the L1 cache, search for the requesting line in the 
     // in the directory
     unsigned cluster_size = m_gpu->getShaderCoreConfig()
@@ -1748,6 +1762,21 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   return access_status;
 }
 
+void l1_cache::intra_cluster_remote_access(mem_fetch *mf) {
+  unsigned cluster_size = m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster;
+  unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
+  for (int i = 0; i < cluster_size; i ++) { 
+    shader_core_ctx *core = m_gpu->get_cluster(cluster_id)->get_core(i);;
+    if (core->get_sid() == m_tag_array->get_core_id()) continue;
+    enum cache_request_status probe_result = core->probe_l1_cache(mf);
+    // if the intra cluster probe is a hit
+    if (probe_result == HIT) {
+      inc_potential_replication_hit();
+      return;
+    }
+  }
+}
+
 enum cache_request_status l1_cache::probe(mem_fetch *mf) {
   // cache_index (not used)
   unsigned cache_idx = (unsigned) -1;
@@ -1756,6 +1785,10 @@ enum cache_request_status l1_cache::probe(mem_fetch *mf) {
 
 void l1_cache::inc_replication_hit() {
   m_stats.inc_replication_hit();
+}
+
+void l1_cache::inc_potential_replication_hit() {
+  m_stats.inc_potential_replication_hit();
 }
 
 // The l2 cache access function calls the base data_cache access
