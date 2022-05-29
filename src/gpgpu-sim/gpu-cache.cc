@@ -1737,9 +1737,6 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
   if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
-    // probe all other caches in the same cluster to check for replication hits
-    // that is potentially capturable by the directory.
-    intra_cluster_remote_access(mf);
     // if this access misses the L1 cache, search for the requesting line in the 
     // in the directory
     unsigned cluster_size = m_gpu->getShaderCoreConfig()

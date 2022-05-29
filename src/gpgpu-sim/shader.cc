@@ -1943,6 +1943,10 @@ void ldst_unit::L1_latency_queue_cycle() {
       bool read_sent = was_read_sent(events);
 
       if (status == HIT) {
+        if (mf_next->get_access_type() == GLOBAL_ACC_R &&
+                m_L1D->probe(mf_next) == MISS) {
+           m_L1D->intra_cluster_remote_access(mf_next);
+        }
         assert(!read_sent);
         l1_latency_queue[j][0] = NULL;
         if (mf_next->get_inst().is_load()) {
@@ -1985,6 +1989,9 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
+        if (status == MISS && mf_next->get_access_type() == GLOBAL_ACC_R) {
+            m_L1D->intra_cluster_remote_access(mf_next);
+        }
       }
     }
     // pipelined cache
