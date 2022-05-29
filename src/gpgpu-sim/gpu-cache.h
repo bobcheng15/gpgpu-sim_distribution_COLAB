@@ -991,6 +991,7 @@ struct cache_sub_stats {
   unsigned long long data_port_busy_cycles;
   unsigned long long fill_port_busy_cycles;
   unsigned long long replication_hit;
+  unsigned long long potential_replication_hit;
   unsigned long long allocated_lines;
   unsigned long long used_lines;
   unsigned long long repeated_alloc_lines;
@@ -1005,6 +1006,7 @@ struct cache_sub_stats {
     data_port_busy_cycles = 0;
     fill_port_busy_cycles = 0;
     replication_hit = 0;
+    potential_replication_hit = 0;
     allocated_lines = 0;
     used_lines = 0;
     repeated_alloc_lines = 0;
@@ -1021,6 +1023,7 @@ struct cache_sub_stats {
     data_port_busy_cycles += css.data_port_busy_cycles;
     fill_port_busy_cycles += css.fill_port_busy_cycles;
     replication_hit += css.replication_hit;
+    potential_replication_hit += css.potential_replication_hit;
     allocated_lines += css.allocated_lines;
     used_lines += css.used_lines;
     repeated_alloc_lines += css.repeated_alloc_lines;
@@ -1045,6 +1048,8 @@ struct cache_sub_stats {
         fill_port_busy_cycles + cs.fill_port_busy_cycles;
     ret.replication_hit = 
         replication_hit + cs.replication_hit;
+    ret.potential_replication_hit = 
+        potential_replication_hit + cs.potential_replication_hit;
     ret.allocated_lines = 
         allocated_lines + cs.allocated_lines;
     ret.used_lines = 
@@ -1129,6 +1134,7 @@ class cache_stats {
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
   void inc_replication_hit();
+  void inc_potential_replication_hit();
   void inc_allocated_line();
   void inc_used_line();
   void inc_repeated_line();
@@ -1168,6 +1174,7 @@ class cache_stats {
   unsigned long long m_cache_data_port_busy_cycles;
   unsigned long long m_cache_fill_port_busy_cycles;
   unsigned long long m_replication_hit;
+  unsigned long long m_potential_replication_hit;
   // for sharing directory
   unsigned long long m_allocated_lines;
   unsigned long long m_used_lines;
@@ -1613,6 +1620,9 @@ class l1_cache : public data_cache {
   enum cache_request_status probe(mem_fetch *mf);
 
   void inc_replication_hit();
+  void inc_potential_replication_hit();
+
+  void intra_cluster_remote_access(mem_fetch *mf);
 
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
