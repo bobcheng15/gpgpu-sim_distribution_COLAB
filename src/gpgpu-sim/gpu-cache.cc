@@ -1696,15 +1696,25 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   unsigned cache_index = (unsigned)-1;
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
-  if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
+  enum cache_request_status remote_access_status = MISS;
+  enum cache_request_status access_status = MISS;
+  if ((probe_status == MISS || probe_status == RESERVATION_FAIL)
+                            && mf->get_access_type() == GLOBAL_ACC_R) {
     // if this access misses the L1 cache, search for the requesting line in the 
     // l1 caches of the cores within the same cluster (only for global reads)
-    enum cache_request_status remote_access_status = 
-                              intra_cluster_remote_access(mf);
-    if (remote_access_status == HIT) 
-      return remote_access_status;
+    remote_access_status = intra_cluster_remote_access(mf);
   }
-  enum cache_request_status access_status =
+  if (remote_access_status == HIT) {
+    // remote hits should be counted as local cache misss
+    // in order for replicaiton rate to be correctly accounted
+    // models the data port usage in case of replication hit
+    m_bandwidth_management.use_data_port(mf, access_status, events);
+    m_stats.inc_stats(mf->get_access_type(), MISS);
+    m_stats.inc_stats_pw(mf->get_access_type(), MISS);
+    return remote_access_status;
+   
+  }
+  access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
   m_stats.inc_stats(mf->get_access_type(),
                     m_stats.select_stats_status(probe_status, access_status));
