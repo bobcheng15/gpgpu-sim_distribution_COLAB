@@ -512,11 +512,11 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
                               m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle +
                                   m_memcpy_cycle_offset,
                               events);
-        if (mf->get_access_type() == GLOBAL_ACC_R) {
-          m_gpu->inc_hit_dist(mf->get_pc(),
-                             block_addr(mf->get_addr()), 
-                             mf->get_tpc());
-        }
+        //if (mf->get_access_type() == GLOBAL_ACC_R) {
+        //  m_gpu->inc_hit_dist(mf->get_pc(),
+        //                     block_addr(mf->get_addr()), 
+        //                     mf->get_tpc());
+        //}
         bool write_sent = was_write_sent(events);
         bool read_sent = was_read_sent(events);
         MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
