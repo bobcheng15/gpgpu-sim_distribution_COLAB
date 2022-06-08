@@ -1108,13 +1108,16 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
   assert(e->second.m_valid);
   mf->set_data_size(e->second.m_data_size);
   mf->set_addr(e->second.m_addr);
-  if (m_config.m_alloc_policy == ON_MISS)
-    m_tag_array->fill(e->second.m_cache_index, time, mf);
-  else if (m_config.m_alloc_policy == ON_FILL) {
-    m_tag_array->fill(e->second.m_block_addr, time, mf);
-    if (m_config.is_streaming()) m_tag_array->remove_pending_line(mf);
-  } else
-    abort();
+  // do not fill remote reply line into private l1 cache
+  if (mf->get_type() != DIR_REPLY) {
+    if (m_config.m_alloc_policy == ON_MISS)
+      m_tag_array->fill(e->second.m_cache_index, time, mf);
+    else if (m_config.m_alloc_policy == ON_FILL) {
+      m_tag_array->fill(e->second.m_block_addr, time, mf);
+      if (m_config.is_streaming()) m_tag_array->remove_pending_line(mf);
+    } else
+      abort();
+  }
   bool has_atomic = false;
   m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
   if (has_atomic) {
@@ -1700,6 +1703,80 @@ enum cache_request_status data_cache::process_tag_probe(
   return access_status;
 }
 
+enum cache_request_status l1_cache::process_tag_probe(
+    bool wr, enum cache_request_status probe_status, new_addr_type addr,
+    unsigned cache_index, mem_fetch *mf, unsigned time,
+    std::list<cache_event> &events) {
+  // Each function pointer ( m_[rd/wr]_[hit/miss] ) is set in the
+  // data_cache constructor to reflect the corresponding cache configuration
+  // options. Function pointers were used to avoid many long conditional
+  // branches resulting from many cache configuration options.
+  cache_request_status access_status = probe_status;
+  if (wr) {  // Write
+    if (probe_status == HIT) {
+      access_status =
+          (this->*m_wr_hit)(addr, cache_index, mf, time, events, probe_status);
+    } else if ((probe_status != RESERVATION_FAIL) ||
+               (probe_status == RESERVATION_FAIL &&
+                m_config.m_write_alloc_policy == NO_WRITE_ALLOCATE)) {
+      access_status =
+          (this->*m_wr_miss)(addr, cache_index, mf, time, events, probe_status);
+    } else {
+      // the only reason for reservation fail here is LINE_ALLOC_FAIL (i.e all
+      // lines are reserved)
+      m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
+    }
+  } else {  // Read
+    if (probe_status == HIT) {
+      access_status =
+          (this->*m_rd_hit)(addr, cache_index, mf, time, events, probe_status);
+    } else if (probe_status != RESERVATION_FAIL) {
+      // directory access
+      if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
+        new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
+        bool mshr_hit = m_mshrs.probe(mshr_addr);
+        bool mshr_avail = !m_mshrs.full(mshr_addr);
+        if (!mshr_hit && mshr_avail) {
+          // if this access misses the L1 cache, search for the requesting line in 
+          // in the directory
+          unsigned cluster_size = m_gpu->getShaderCoreConfig()
+                                  ->n_simt_cores_per_cluster;  
+          unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
+          sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
+          enum cache_request_status remote_access_status = 
+                                    L1S->access(mf->get_addr(), mf, time);
+          if (remote_access_status == HIT) {
+            if (!m_gpu->get_cluster(cluster_id)->response_queue_full()) {
+              m_mshrs.add(mshr_addr, mf);
+              m_extra_mf_fields[mf] = extra_mf_fields(
+                                      mshr_addr, mf->get_addr(), cache_index, 
+                                      mf->get_data_size(), m_config);
+              mf->set_status(m_miss_queue_status, time);
+              mf->set_dir_response_type();
+               m_gpu->get_cluster(cluster_id)->push_response_fifo(mf);
+              inc_replication_hit();
+              return MISS;
+            }
+            else {
+              // if the response fifo is full, deflects request to l2
+              m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
+            }
+          }
+        }
+      }
+      access_status =
+          (this->*m_rd_miss)(addr, cache_index, mf, time, events, probe_status);
+    } else {
+      // the only reason for reservation fail here is LINE_ALLOC_FAIL (i.e all
+      // lines are reserved)
+      m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
+    }
+  }
+
+  m_bandwidth_management.use_data_port(mf, access_status, events);
+  return access_status;
+}
+
 // Both the L1 and L2 currently use the same access function.
 // Differentiation between the two caches is done through configuration
 // of caching policies.
@@ -1736,20 +1813,6 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
   unsigned cache_index = (unsigned)-1;
   enum cache_request_status probe_status =
       m_tag_array->probe(block_addr, cache_index, mf, true);
-  if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
-    // if this access misses the L1 cache, search for the requesting line in the 
-    // in the directory
-    unsigned cluster_size = m_gpu->getShaderCoreConfig()
-                            ->n_simt_cores_per_cluster;  
-    unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
-    sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
-    enum cache_request_status remote_access_status = 
-                              L1S->access(mf->get_addr(), mf, time);
-    if (remote_access_status == HIT) {
-      inc_replication_hit();
-      return remote_access_status;
-    }
-  }
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
   m_stats.inc_stats(mf->get_access_type(),

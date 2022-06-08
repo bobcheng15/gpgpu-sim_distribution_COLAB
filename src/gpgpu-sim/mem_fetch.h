@@ -37,7 +37,8 @@ enum mf_type {
   READ_REQUEST = 0,
   WRITE_REQUEST,
   READ_REPLY,  // send to shader
-  WRITE_ACK
+  WRITE_ACK,
+  DIR_REPLY
 };
 
 #define MF_TUP_BEGIN(X) enum X {
@@ -98,6 +99,7 @@ class mem_fetch {
   bool istexture() const;
   bool isconst() const;
   enum mf_type get_type() const { return m_type; }
+  void set_dir_response_type() {m_type = DIR_REPLY; }
   bool isatomic() const;
 
   void set_return_timestamp(unsigned t) { m_timestamp2 = t; }

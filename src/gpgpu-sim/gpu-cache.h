@@ -1506,7 +1506,7 @@ class data_cache : public baseline_cache {
   //! A general function that takes the result of a tag_array probe
   //  and performs the correspding functions based on the cache configuration
   //  The access fucntion calls this function
-  enum cache_request_status process_tag_probe(bool wr,
+  virtual enum cache_request_status process_tag_probe(bool wr,
                                               enum cache_request_status status,
                                               new_addr_type addr,
                                               unsigned cache_index,
@@ -1616,6 +1616,13 @@ class l1_cache : public data_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
                                            unsigned time,
                                            std::list<cache_event> &events);
+
+  virtual enum cache_request_status process_tag_probe(bool wr,
+                                            enum cache_request_status status,
+                                            new_addr_type addr,
+                                            unsigned cache_index,
+                                            mem_fetch *mf, unsigned time,
+                                            std::list<cache_event> &events);
   
   enum cache_request_status probe(mem_fetch *mf);
 

@@ -4449,13 +4449,62 @@ void simt_core_cluster::icnt_cycle() {
         m_response_fifo.pop_front();
         m_memory_stats->memlatstat_read_done(mf);
         m_core[cid]->accept_ldst_unit_response(mf);
-        if (mf->get_access_type() == GLOBAL_ACC_R) {
+        if (mf->get_access_type() == GLOBAL_ACC_R &&
+            mf->get_type() != DIR_REPLY) {
           m_L1S->install_directory_entry(mf, m_gpu->gpu_sim_cycle + 
                                          m_gpu->gpu_tot_sim_cycle);
         }
       }
     }
   }
+  // if (!m_response_fifo.empty()) {
+  //   std::list<mem_fetch *>::iterator it = m_response_fifo.begin();
+  //   std::vector<bool> been_filled_core(m_config->n_simt_cores_per_cluster, 
+  //                                      false);
+  //   unsigned n_checked_request = 0;
+  //   unsigned n_filled_cores = 0;
+  //   // printf("========== cluster id = %u ==========\n", m_cluster_id);
+  //   // printf("m_response_fifo size: %u\n", m_response_fifo.size());
+  //   while(it != m_response_fifo.end() && n_checked_request < 8){ 
+  //     n_checked_request ++;
+  //     mem_fetch *mf = *it;
+  //     unsigned cid = m_config->sid_to_cid(mf->get_sid());
+  //     // printf("target cid: %u\n", cid);
+  //     // the target core of the memory request have been filled in the same 
+  //     // batch, skip this request.
+  //     if (been_filled_core[cid]) {
+  //       it ++;
+  //       continue;
+  //     }
+  //     if (mf->get_access_type() == INST_ACC_R) {
+  //     // instruction fetch response
+  //       if (!m_core[cid]->fetch_unit_response_buffer_full()) {
+  //         it = m_response_fifo.erase(it);
+  //         m_core[cid]->accept_fetch_response(mf);
+  //         been_filled_core[cid] = true;
+  //         n_filled_cores ++;
+  //       }
+  //     } else {
+  //     // data response
+  //       if (!m_core[cid]->ldst_unit_response_buffer_full()) {
+  //         it = m_response_fifo.erase(it);
+  //         m_memory_stats->memlatstat_read_done(mf);
+  //         m_core[cid]->accept_ldst_unit_response(mf);
+  //         // only responce from lower level memory is logged to the directory 
+  //         if (mf->get_access_type() == GLOBAL_ACC_R && 
+  //             mf->get_type() != DIR_REPLY) {
+  //           m_L1S->install_directory_entry(mf, m_gpu->gpu_sim_cycle + 
+  //                                         m_gpu->gpu_tot_sim_cycle);
+  //         }
+  //         been_filled_core[cid] = true;
+  //         n_filled_cores ++;
+  //       }
+  //     }
+  //   }
+  //   // printf("request sent %u\n", n_filled_cores);
+  //   // printf("==========\n");
+  // }
+  // accept packet from NoC
   if (m_response_fifo.size() < m_config->n_simt_ejection_buffer_size) {
     mem_fetch *mf = (mem_fetch *)::icnt_pop(m_cluster_id);
     if (!mf) return;
