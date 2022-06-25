@@ -4227,6 +4227,16 @@ void exec_simt_core_cluster::create_shader_core_ctx() {
                                          m_config, m_mem_config, m_stats);
     m_core_sim_order.push_back(i);
   }
+  // instantiate the per cluster sharing directory here
+  if (!m_config->m_L1S_config.disabled()) {
+    char L1S_name[STRSIZE];
+    snprintf(L1S_name, STRSIZE, "L1S_%03d", m_cluster_id);
+    m_L1S = new sharing_directory(L1S_name, m_config->m_L1S_config, m_cluster_id,
+                                  get_shader_constant_cache_id(), 
+                                  new shader_memory_interface(m_core[0], this), 
+                                  IN_L1C_MISS_QUEUE, m_gpu);
+  }
+  printf("L1S instantiation done\n");
 }
 
 simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
@@ -4242,18 +4252,13 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_stats = stats;
   m_memory_stats = mstats;
   m_mem_config = mem_config;
-  // instantiate the per cluster sharing directory here
-  if (!m_config->m_L1S_config.disabled()) {
-    char L1S_name[STRSIZE];
-    snprintf(L1S_name, STRSIZE, "L1S_%03d", m_cluster_id);
-    m_L1S = new sharing_directory(L1S_name, m_config->m_L1S_config, m_cluster_id,
-                                  get_shader_constant_cache_id(), NULL, 
-                                  IN_L1C_MISS_QUEUE, gpu);
-  }
-
 }
 
 void simt_core_cluster::core_cycle() {
+  // eject memory requests in l1s miss queue to the interconnect
+  m_L1S->cycle();
+  // handle current pending accesses to the L1S 
+  l1s_cycle();
   for (std::list<unsigned>::iterator it = m_core_sim_order.begin();
        it != m_core_sim_order.end(); ++it) {
     m_core[*it]->cycle();
@@ -4522,6 +4527,38 @@ void simt_core_cluster::icnt_cycle() {
     // m_memory_stats->memlatstat_read_done(mf,m_shader_config->max_warps_per_shader);
     m_response_fifo.push_back(mf);
     m_stats->n_mem_to_simt[m_cluster_id] += mf->get_num_flits(false);
+  }
+}
+
+void simt_core_cluster::l1s_cycle() {
+  // l1s input queue is empty, nothing to do
+  if (m_l1s_input_fifo.empty()) return;
+  mem_fetch *mf = m_l1s_input_fifo.front();
+  enum cache_request_status l1s_access_status = 
+                              m_L1S->access(mf->get_addr(), mf, 
+                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+  assert(l1s_access_status == HIT || l1s_access_status == MISS 
+         || l1s_access_status == RESERVATION_FAIL);
+  if (l1s_access_status == HIT) { 
+    // sharing directory hits!!
+    // remove the request from the head of queue
+    m_l1s_input_fifo.pop_front();
+    // push the request to the response fifo
+    mf->set_dir_response_type();
+    push_response_fifo(mf);
+    // record the replication hit 
+    get_core(m_config->sid_to_cid(mf->get_sid()))->inc_replication_hit();
+  }
+  else if (l1s_access_status == MISS) { 
+    // miss caused by a straightup l1s miss or a fasle positive
+    // the request has been deflected to the level2 cache
+    // remove the missing request from the input queue
+    m_l1s_input_fifo.pop_front();
+  }
+  else {
+    assert(l1s_access_status == RESERVATION_FAIL);
+    // on a reservation fail, do nothing
+    // retry the same request the next cycle
   }
 }
 

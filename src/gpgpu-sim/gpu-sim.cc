@@ -328,6 +328,10 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       &ldst_unit_response_queue_size,
       "number of response packets in ld/st unit ejection buffer", "2");
   option_parser_register(
+      opp, "-gpgpu_n_l1s_input_buffer_size", OPT_UINT32, 
+      &l1s_input_buffer_size, 
+      "number of memory request in injection queue of sharing directory", "8");
+  option_parser_register(
       opp, "-gpgpu_shmem_per_block", OPT_UINT32, &gpgpu_shmem_per_block,
       "Size of shared memory per thread block or CTA (default 48kB)", "49152");
   option_parser_register(

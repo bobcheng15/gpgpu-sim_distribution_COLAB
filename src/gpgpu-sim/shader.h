@@ -1302,6 +1302,7 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1C_sub_stats(struct cache_sub_stats &css) const;
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
   enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
+  void inc_replication_hit() { m_L1D->inc_replication_hit(); }
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1584,6 +1585,7 @@ class shader_core_config : public core_config {
   unsigned n_simt_clusters;
   unsigned n_simt_ejection_buffer_size;
   unsigned ldst_unit_response_queue_size;
+  unsigned l1s_input_buffer_size;
 
   int simt_core_sim_order;
 
@@ -2114,6 +2116,7 @@ class shader_core_ctx : public core_t {
   bool check_if_non_released_reduction_barrier(warp_inst_t &inst);
 
   enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
+  void inc_replication_hit() {m_ldst_unit->inc_replication_hit(); }
 
  protected:
   unsigned inactive_lanes_accesses_sfu(unsigned active_count, double latency) {
@@ -2357,6 +2360,14 @@ class simt_core_cluster {
   sharing_directory *get_L1S() {
     return m_L1S;
   }
+  bool l1s_input_fifo_full() const { 
+    return m_l1s_input_fifo.size() >= m_config->l1s_input_buffer_size;
+  }
+
+  void push_l1s_input_fifo(mem_fetch * mf) {
+    m_l1s_input_fifo.push_back(mf);
+  }
+  void l1s_cycle();
 
  protected:
   unsigned m_cluster_id;
@@ -2370,6 +2381,7 @@ class simt_core_cluster {
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
+  std::list<mem_fetch *> m_l1s_input_fifo;
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {

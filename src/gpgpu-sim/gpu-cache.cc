@@ -1731,7 +1731,7 @@ enum cache_request_status l1_cache::process_tag_probe(
       access_status =
           (this->*m_rd_hit)(addr, cache_index, mf, time, events, probe_status);
     } else if (probe_status != RESERVATION_FAIL) {
-      // directory access
+      // push request to directory
       if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R) {
         new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
         bool mshr_hit = m_mshrs.probe(mshr_addr);
@@ -1743,22 +1743,20 @@ enum cache_request_status l1_cache::process_tag_probe(
                                   ->n_simt_cores_per_cluster;  
           unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
           sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
-          enum cache_request_status remote_access_status = 
-                                    L1S->access(mf->get_addr(), mf, time);
-          if (remote_access_status == HIT) {
-            if (!m_gpu->get_cluster(cluster_id)->response_queue_full()) {
+          enum cache_request_status remote_probe_status = 
+                                    L1S->probe(mf->get_addr(), mf);
+          if (remote_probe_status == HIT) {
+            if (!m_gpu->get_cluster(cluster_id)->l1s_input_fifo_full()) {
               m_mshrs.add(mshr_addr, mf);
               m_extra_mf_fields[mf] = extra_mf_fields(
                                       mshr_addr, mf->get_addr(), cache_index, 
                                       mf->get_data_size(), m_config);
               mf->set_status(m_miss_queue_status, time);
-              mf->set_dir_response_type();
-               m_gpu->get_cluster(cluster_id)->push_response_fifo(mf);
-              inc_replication_hit();
+              m_gpu->get_cluster(cluster_id)->push_l1s_input_fifo(mf);
               return MISS;
             }
             else {
-              // if the response fifo is full, deflects request to l2
+              // if the l1s input fifo is full, deflects request to l2
               m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
             }
           }
@@ -2006,6 +2004,21 @@ void tex_cache::display_state(FILE *fp) const {
   }
 }
 
+enum cache_request_status sharing_directory::probe(new_addr_type addr,
+                                                   mem_fetch *mf) {
+  assert(mf->get_data_size() <= m_config.get_atom_sz());
+  assert(m_config.m_write_policy == READ_ONLY);
+  assert(mf->get_access_type() == GLOBAL_ACC_R);
+  assert(!mf->get_is_write());
+  new_addr_type block_addr = m_config.block_addr(addr);
+  unsigned cache_index = (unsigned)-1;
+  // check whether the desired cache line is in the cache
+  enum cache_request_status status =
+                  m_tag_array->probe(block_addr, cache_index, mf);
+  assert(status == MISS || status == HIT);
+  return status;
+}
+
 enum cache_request_status sharing_directory::access(new_addr_type addr, 
                                                     mem_fetch *mf, 
                                                     unsigned time) {
@@ -2032,14 +2045,22 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
     enum cache_request_status remote_probe_status = core->probe_l1_cache(mf);
     // the desired line is in remote core's l1
     if (remote_probe_status == HIT) { 
-      //update LRU state
-      remote_access_result = m_tag_array->access(block_addr, time, 
-                                                 cache_index, mf);
-      assert(remote_access_result == HIT);
-      m_stats.inc_stats(mf->get_access_type(), HIT);
-      if (line->get_been_read() == false) {
-        line->set_been_read();
-        m_stats.inc_used_line();
+      if (!m_gpu->get_cluster(cluster_id)->response_queue_full()) {
+        // response fifo not full yet, peform remote access
+        // update LRU state
+        remote_access_result = m_tag_array->access(block_addr, time, 
+                                                  cache_index, mf);
+        assert(remote_access_result == HIT);
+        m_stats.inc_stats(mf->get_access_type(), HIT);
+        if (line->get_been_read() == false) {
+          line->set_been_read();
+          m_stats.inc_used_line();
+        }
+      }
+      else {
+        // response fifo full, stall the sharing directory
+        m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
+        remote_access_result = RESERVATION_FAIL;
       }
     }  
     else {
@@ -2054,6 +2075,20 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
     m_stats.inc_stats(mf->get_access_type(), MISS);
     // do nothing on directory miss 
   }
+  if (remote_access_result == MISS) { 
+    // for straightup l1s misses and fasle postives, deflects request to the 
+    // level 2 cache
+    if (miss_queue_full(1)){
+      // the miss queue is already full, stall the sharing directory 
+      m_stats.inc_fail_stats(mf->get_access_type(), MISS_QUEUE_FULL);
+      remote_access_result = RESERVATION_FAIL;
+    }
+    else {
+      mf->set_data_size(m_config.get_atom_sz());
+      mf->set_addr(m_config.mshr_addr(mf->get_addr()));
+      m_miss_queue.push_back(mf);
+    }
+  }
   return remote_access_result;
 }
 
@@ -2062,7 +2097,8 @@ void sharing_directory::install_directory_entry (mem_fetch *mf, unsigned time) {
   if (m_tag_array->probe(mf->get_addr(), cache_index, mf) == HIT)
     m_stats.inc_repeated_line();
   m_tag_array->fill(mf->get_addr(), time, mf);
-  enum cache_request_status probe_status = m_tag_array->probe(mf->get_addr(), cache_index, mf);
+  enum cache_request_status probe_status = 
+                          m_tag_array->probe(mf->get_addr(), cache_index, mf);
   assert(probe_status == HIT);
   unsigned cid = mf->get_sid() % 
                  (m_gpu->getShaderCoreConfig()->n_simt_cores_per_cluster);

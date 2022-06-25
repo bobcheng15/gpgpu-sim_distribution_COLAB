@@ -1871,6 +1871,7 @@ class sharing_directory : public read_only_cache {
   }
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                            unsigned time);
+  enum cache_request_status probe(new_addr_type addr, mem_fetch *mf);
   void install_directory_entry (mem_fetch *mf, unsigned time);
  protected:
   gpgpu_sim *m_gpu;
