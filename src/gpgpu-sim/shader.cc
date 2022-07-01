@@ -1944,12 +1944,13 @@ void ldst_unit::L1_latency_queue_cycle() {
 
       if (status == HIT) {
         if (mf_next->get_access_type() == GLOBAL_ACC_R &&
-                m_L1D->probe(mf_next) == MISS) {
+                m_L1D->probe(mf_next) == MISS && 
+                mf_next->get_type() != DIR_RQST) {
            m_L1D->intra_cluster_remote_access(mf_next);
         }
         assert(!read_sent);
         l1_latency_queue[j][0] = NULL;
-        if (mf_next->get_inst().is_load()) {
+        if (mf_next->get_inst().is_load() && mf_next->get_type() != DIR_RQST) {
           for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++)
             if (mf_next->get_inst().out[r] > 0) {
               assert(m_pending_writes[mf_next->get_inst().warp_id()]
@@ -1980,8 +1981,14 @@ void ldst_unit::L1_latency_queue_cycle() {
           for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
         }
 
-        if (!write_sent) delete mf_next;
-
+        if (!write_sent && mf_next->get_type() != DIR_RQST) delete mf_next;
+        // if the remote read request result in a hit, icrement the replication 
+        // hit counter and send this request to the response buffer for filling
+        if (mf_next->get_type() == DIR_RQST) {
+          mf_next->set_type(DIR_REPLY);
+          m_core->get_cluster()->push_response_fifo(mf_next);
+          inc_replication_hit();
+        }
       } else if (status == RESERVATION_FAIL) {
         // all lines are reserved, stalled
         assert(!read_sent);
@@ -1989,7 +1996,8 @@ void ldst_unit::L1_latency_queue_cycle() {
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
-        if (status == MISS && mf_next->get_access_type() == GLOBAL_ACC_R) {
+        if (status == MISS && mf_next->get_access_type() == GLOBAL_ACC_R &&
+            mf_next->get_type() != DIR_RQST) {
             m_L1D->intra_cluster_remote_access(mf_next);
         }
       }
@@ -2106,6 +2114,27 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
       access_type = (iswrite) ? G_MEM_ST : G_MEM_LD;
   }
   return inst.accessq_empty();
+}
+void ldst_unit::remote_access_cycle() {     
+  if (m_core->l1d_remote_access_fifo_empty()) {
+    // remote access fifo is empty, do nothing
+    return;
+  }
+  else {
+    for (int j = 0; j < m_config->m_L1D_config.l1_banks; j ++) {
+      mem_fetch *mf = m_core->next_remote_access();
+      if (m_core->l1d_remote_access_fifo_empty()) return;
+      unsigned bank_id = m_config->m_L1D_config.set_bank(mf->get_addr());
+      assert(bank_id < m_config->m_L1D_config.l1_banks);
+      if ((l1_latency_queue[bank_id][m_config->m_L1D_config.l1_latency - 1]) ==
+        NULL) {
+        l1_latency_queue[bank_id][m_config->m_L1D_config.l1_latency - 1] = mf;
+        m_core->pop_l1d_remote_access_fifo();
+      } else {
+        break;
+      }
+    }
+  }
 }
 
 bool ldst_unit::response_buffer_full() const {
@@ -2648,6 +2677,7 @@ void ldst_unit::cycle() {
   done &= constant_cycle(pipe_reg, rc_fail, type);
   done &= texture_cycle(pipe_reg, rc_fail, type);
   done &= memory_cycle(pipe_reg, rc_fail, type);
+  remote_access_cycle();
   m_mem_rc = rc_fail;
 
   if (!done) {  // log stall types and return
@@ -2933,14 +2963,15 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
               "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
               "%.3lf, False_positive = %llu, fp_rate = %.4lf, alloc_lines = "
               "%llu, used_lines = %llu, use_rate = %.4lf, repeated_lines = "
-              "%llu, repeated_rate = %.4lf\n",
+              "%llu, repeated_rate = %.4lf, reservation_fail = %llu\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
               (double)css.pending_hits / (double)css.accesses,
               css.allocated_lines, css.used_lines, 
               (double)css.used_lines / (double)css.allocated_lines, 
               css.repeated_alloc_lines, 
-              (double)css.repeated_alloc_lines / (double)css.allocated_lines);
+              (double)css.repeated_alloc_lines / (double)css.allocated_lines,
+              css.res_fails);
 
       total_css += css;
     }
@@ -4255,10 +4286,6 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
 }
 
 void simt_core_cluster::core_cycle() {
-  // eject memory requests in l1s miss queue to the interconnect
-  m_L1S->cycle();
-  // handle current pending accesses to the L1S 
-  l1s_cycle();
   for (std::list<unsigned>::iterator it = m_core_sim_order.begin();
        it != m_core_sim_order.end(); ++it) {
     m_core[*it]->cycle();
@@ -4268,6 +4295,10 @@ void simt_core_cluster::core_cycle() {
     m_core_sim_order.splice(m_core_sim_order.end(), m_core_sim_order,
                             m_core_sim_order.begin());
   }
+  // eject memory requests in l1s miss queue to the interconnect
+  m_L1S->cycle();
+  // handle current pending accesses to the L1S 
+  l1s_cycle();
 }
 
 void simt_core_cluster::reinit() {
@@ -4537,20 +4568,15 @@ void simt_core_cluster::l1s_cycle() {
   enum cache_request_status l1s_access_status = 
                               m_L1S->access(mf->get_addr(), mf, 
                               m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-  assert(l1s_access_status == HIT || l1s_access_status == MISS 
-         || l1s_access_status == RESERVATION_FAIL);
+  assert(l1s_access_status == HIT || l1s_access_status == MISS || 
+        l1s_access_status == RESERVATION_FAIL);
   if (l1s_access_status == HIT) { 
     // sharing directory hits!!
     // remove the request from the head of queue
     m_l1s_input_fifo.pop_front();
-    // push the request to the response fifo
-    mf->set_dir_response_type();
-    push_response_fifo(mf);
-    // record the replication hit 
-    get_core(m_config->sid_to_cid(mf->get_sid()))->inc_replication_hit();
   }
   else if (l1s_access_status == MISS) { 
-    // miss caused by a straightup l1s miss or a fasle positive
+    // miss caused by a straight up l1s miss
     // the request has been deflected to the level2 cache
     // remove the missing request from the input queue
     m_l1s_input_fifo.pop_front();

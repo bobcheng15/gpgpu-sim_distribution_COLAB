@@ -42,6 +42,8 @@
 #define MAX_DEFAULT_CACHE_SIZE_MULTIBLIER 4
 
 enum cache_block_state { INVALID = 0, RESERVED, VALID, MODIFIED };
+// forward declaration
+class sharing_directory;
 
 enum cache_request_status {
   HIT = 0,
@@ -1628,8 +1630,8 @@ class l1_cache : public data_cache {
 
   void inc_replication_hit();
   void inc_potential_replication_hit();
-
   void intra_cluster_remote_access(mem_fetch *mf);
+  sharing_directory* get_L1S() const;
 
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
@@ -1872,7 +1874,8 @@ class sharing_directory : public read_only_cache {
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                            unsigned time);
   enum cache_request_status probe(new_addr_type addr, mem_fetch *mf);
-  void install_directory_entry (mem_fetch *mf, unsigned time);
+  void install_directory_entry(mem_fetch *mf, unsigned time);
+  bool push_miss_queue(mem_fetch *mf);
  protected:
   gpgpu_sim *m_gpu;
 };

@@ -1327,6 +1327,7 @@ class ldst_unit : public pipelined_simd_unit {
                      mem_stage_access_type &fail_type);
   bool memory_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
                     mem_stage_access_type &fail_type);
+  void remote_access_cycle();
 
   virtual mem_stage_stall_type process_cache_access(
       cache_t *cache, new_addr_type address, warp_inst_t &inst,
@@ -1586,6 +1587,7 @@ class shader_core_config : public core_config {
   unsigned n_simt_ejection_buffer_size;
   unsigned ldst_unit_response_queue_size;
   unsigned l1s_input_buffer_size;
+  unsigned l1d_remote_buffer_size;
 
   int simt_core_sim_order;
 
@@ -2117,6 +2119,24 @@ class shader_core_ctx : public core_t {
 
   enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
   void inc_replication_hit() {m_ldst_unit->inc_replication_hit(); }
+  bool l1d_remote_access_fifo_full() const {
+    return m_remote_access_fifo.size() >= m_config->l1d_remote_buffer_size;
+  }
+  bool l1d_remote_access_fifo_empty() const {
+    return m_remote_access_fifo.empty();
+  }
+  void push_l1d_remote_access_fifo(mem_fetch* mf) {
+    m_remote_access_fifo.push_back(mf);
+  }
+  void pop_l1d_remote_access_fifo() {
+    m_remote_access_fifo.pop_front();
+  }
+  mem_fetch* next_remote_access() {
+    return m_remote_access_fifo.front();
+  }
+  simt_core_cluster* get_cluster() {
+    return m_cluster;
+  }
 
  protected:
   unsigned inactive_lanes_accesses_sfu(unsigned active_count, double latency) {
@@ -2256,6 +2276,7 @@ class shader_core_ctx : public core_t {
   // is that the dynamic_warp_id is a running number unique to every warp
   // run on this shader, where the warp_id is the static warp slot.
   unsigned m_dynamic_warp_id;
+  std::list<mem_fetch *> m_remote_access_fifo;
 
   // Jin: concurrent kernels on a sm
  public:
