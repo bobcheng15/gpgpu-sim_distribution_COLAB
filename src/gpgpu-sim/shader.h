@@ -1303,6 +1303,27 @@ class ldst_unit : public pipelined_simd_unit {
   void get_L1T_sub_stats(struct cache_sub_stats &css) const;
   enum cache_request_status probe_l1_cache(mem_fetch *mf) const;
   void inc_replication_hit() { m_L1D->inc_replication_hit(); }
+  bool l1d_latency_queue_full() {
+    assert(l1_latency_queue.size() == 1);
+    unsigned latency = l1_latency_queue[0].size();
+    for (int i = 0; i < latency; i ++) {
+      if (l1_latency_queue[0][i] == NULL) 
+        return false;
+    }
+    return true; 
+  }
+  mem_fetch* get_stuck_mf() {
+    return l1_latency_queue[0][0];
+  }
+  bool l1d_miss_queue_full() { 
+    return m_L1D->is_miss_queue_full();
+  }
+  bool l1d_mshr_full(mem_fetch* mf) {
+    return m_L1D->is_mshrs_full(mf);
+  }
+  void display_mshr_table(FILE *fp) {
+    m_L1D->display_mshr_table(fp);
+  }
 
  protected:
   ldst_unit(mem_fetch_interface *icnt,
@@ -1913,6 +1934,12 @@ class shader_core_ctx : public core_t {
   bool ldst_unit_response_buffer_full() const;
   unsigned get_not_completed() const { return m_not_completed; }
   unsigned get_n_active_cta() const { return m_n_active_cta; }
+  unsigned get_pending_remote_access() const { 
+    return m_n_pending_remote_access; 
+  }
+  void dec_pending_remote_access() {
+    m_n_pending_remote_access --;
+  }
   unsigned isactive() const {
     if (m_n_active_cta > 0)
       return 1;
@@ -2126,6 +2153,7 @@ class shader_core_ctx : public core_t {
     return m_remote_access_fifo.empty();
   }
   void push_l1d_remote_access_fifo(mem_fetch* mf) {
+    m_n_pending_remote_access ++;
     m_remote_access_fifo.push_back(mf);
   }
   void pop_l1d_remote_access_fifo() {
@@ -2137,6 +2165,20 @@ class shader_core_ctx : public core_t {
   simt_core_cluster* get_cluster() {
     return m_cluster;
   }
+
+  bool l1d_latency_queue_full() { 
+    return m_ldst_unit->l1d_latency_queue_full();
+  }
+
+  mem_fetch* get_stuck_mf() {
+    return m_ldst_unit->get_stuck_mf();
+  }
+
+  bool l1d_miss_queue_full() const { return m_ldst_unit->l1d_miss_queue_full(); }
+  bool l1d_mshr_full(mem_fetch* mf) const { 
+    return m_ldst_unit->l1d_mshr_full(mf);
+  }
+  void display_mshr_table(FILE *fp) { m_ldst_unit->display_mshr_table(fp); }
 
  protected:
   unsigned inactive_lanes_accesses_sfu(unsigned active_count, double latency) {
@@ -2228,6 +2270,7 @@ class shader_core_ctx : public core_t {
   unsigned m_cta_status[MAX_CTA_PER_SHADER];  // CTAs status
   unsigned m_not_completed;  // number of threads to be completed (==0 when all
                              // thread on this core completed)
+  unsigned m_n_pending_remote_access;
   std::bitset<MAX_THREAD_PER_SM> m_active_threads;
 
   // thread contexts
@@ -2389,6 +2432,7 @@ class simt_core_cluster {
     m_l1s_input_fifo.push_back(mf);
   }
   void l1s_cycle();
+  void print_fifo_info(FILE *fp);
 
  protected:
   unsigned m_cluster_id;
@@ -2429,6 +2473,10 @@ class shader_memory_interface : public mem_fetch_interface {
     return m_cluster->icnt_injection_buffer_full(size, write);
   }
   virtual void push(mem_fetch *mf) {
+    if (mf->get_type() == DIR_RQST) { 
+      m_core->dec_pending_remote_access();
+      mf->set_type(READ_REQUEST);
+    }
     m_core->inc_simt_to_mem(mf->get_num_flits(true));
     m_cluster->icnt_inject_request_packet(mf);
   }

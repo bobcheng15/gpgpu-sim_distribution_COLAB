@@ -1109,11 +1109,10 @@ void gpgpu_sim::deadlock_check() {
               "instructions [core(# threads)]:\n");
           printf("GPGPU-Sim uArch: DEADLOCK  ");
           m_cluster[i]->print_not_completed(stdout);
-        } else if (num_cores < 8) {
+        } else {
           m_cluster[i]->print_not_completed(stdout);
-        } else if (num_cores >= 8) {
-          printf(" + others ... ");
         }
+        m_cluster[i]->print_fifo_info(stdout);
         num_cores += m_shader_config->n_simt_cores_per_cluster;
       }
     }

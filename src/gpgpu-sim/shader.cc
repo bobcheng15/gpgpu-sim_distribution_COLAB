@@ -1943,51 +1943,53 @@ void ldst_unit::L1_latency_queue_cycle() {
       bool read_sent = was_read_sent(events);
 
       if (status == HIT) {
-        if (mf_next->get_access_type() == GLOBAL_ACC_R &&
-                m_L1D->probe(mf_next) == MISS && 
-                mf_next->get_type() != DIR_RQST) {
-           m_L1D->intra_cluster_remote_access(mf_next);
-        }
         assert(!read_sent);
         l1_latency_queue[j][0] = NULL;
-        if (mf_next->get_inst().is_load() && mf_next->get_type() != DIR_RQST) {
-          for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++)
-            if (mf_next->get_inst().out[r] > 0) {
-              assert(m_pending_writes[mf_next->get_inst().warp_id()]
-                                     [mf_next->get_inst().out[r]] > 0);
-              // write back the register value one register a cycle
-              unsigned still_pending =
-                  --m_pending_writes[mf_next->get_inst().warp_id()]
-                                    [mf_next->get_inst().out[r]];
-              if (!still_pending) {
-                m_pending_writes[mf_next->get_inst().warp_id()].erase(
-                    mf_next->get_inst().out[r]);
-                m_scoreboard->releaseRegister(mf_next->get_inst().warp_id(),
-                                              mf_next->get_inst().out[r]);
-                m_core->warp_inst_complete(mf_next->get_inst());
-              }
-            }
-        }
-
-        // For write hit in WB policy
-        if (mf_next->get_inst().is_store() && !write_sent) {
-          unsigned dec_ack =
-              (m_config->m_L1D_config.get_mshr_type() == SECTOR_ASSOC)
-                  ? (mf_next->get_data_size() / SECTOR_SIZE)
-                  : 1;
-
-          mf_next->set_reply();
-
-          for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
-        }
-
-        if (!write_sent && mf_next->get_type() != DIR_RQST) delete mf_next;
-        // if the remote read request result in a hit, icrement the replication 
-        // hit counter and send this request to the response buffer for filling
-        if (mf_next->get_type() == DIR_RQST) {
+        if (mf_next->get_type() == DIR_RQST) { 
+          // if the remote read request result in a hit, icrement the replication 
+          // hit counter and send this request to the response buffer for filling
           mf_next->set_type(DIR_REPLY);
           m_core->get_cluster()->push_response_fifo(mf_next);
           inc_replication_hit();
+          m_core->dec_pending_remote_access();
+        }
+        else {
+          if (mf_next->get_access_type() == GLOBAL_ACC_R &&
+                m_L1D->probe(mf_next) == MISS) { 
+            m_L1D->intra_cluster_remote_access(mf_next);
+          }
+          if (mf_next->get_inst().is_load()) {
+            for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++) {
+              if (mf_next->get_inst().out[r] > 0) {
+                assert(m_pending_writes[mf_next->get_inst().warp_id()]
+                                      [mf_next->get_inst().out[r]] > 0);
+                // write back the register value one register a cycle
+                unsigned still_pending =
+                    --m_pending_writes[mf_next->get_inst().warp_id()]
+                                      [mf_next->get_inst().out[r]];
+                if (!still_pending) {
+                  m_pending_writes[mf_next->get_inst().warp_id()].erase(
+                      mf_next->get_inst().out[r]);
+                  m_scoreboard->releaseRegister(mf_next->get_inst().warp_id(),
+                                                mf_next->get_inst().out[r]);
+                  m_core->warp_inst_complete(mf_next->get_inst());
+                }
+              }
+            }    
+          }
+                  // For write hit in WB policy
+          if (mf_next->get_inst().is_store() && !write_sent) {
+            unsigned dec_ack =
+                (m_config->m_L1D_config.get_mshr_type() == SECTOR_ASSOC)
+                    ? (mf_next->get_data_size() / SECTOR_SIZE)
+                    : 1;
+
+            mf_next->set_reply();
+
+            for (unsigned i = 0; i < dec_ack; ++i) m_core->store_ack(mf_next);
+          }
+
+          if (!write_sent) delete mf_next;
         }
       } else if (status == RESERVATION_FAIL) {
         // all lines are reserved, stalled
@@ -2962,8 +2964,10 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(stdout,
               "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
               "%.3lf, False_positive = %llu, fp_rate = %.4lf, alloc_lines = "
-              "%llu, used_lines = %llu, use_rate = %.4lf, repeated_lines = "
-              "%llu, repeated_rate = %.4lf, reservation_fail = %llu\n",
+              "%llu, \nused_lines = %llu, use_rate = %.4lf, repeated_lines = "
+              "%llu, repeated_rate = %.4lf, reservation_fail = %llu,\n"
+              "remote_access_fifo_full = %llu, remote_access_fifo_full_rate = "
+              "%.3lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
               (double)css.pending_hits / (double)css.accesses,
@@ -2971,7 +2975,8 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
               (double)css.used_lines / (double)css.allocated_lines, 
               css.repeated_alloc_lines, 
               (double)css.repeated_alloc_lines / (double)css.allocated_lines,
-              css.res_fails);
+              css.res_fails, css.remote_access_fifo_full,
+              (double)css.remote_access_fifo_full / (double) css.res_fails);
 
       total_css += css;
     }
@@ -2997,6 +3002,13 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
     }
     fprintf(fout, "\tL1S_total_cache_reservation_fails = %llu\n",
             total_css.res_fails);
+    fprintf(fout, "\tL1S_total_cache_remote_access_fifo_full = %llu\n",
+            total_css.remote_access_fifo_full);
+    if (total_css.remote_access_fifo_full > 0) {
+        fprintf(fout, "\tL1S_total_remote_access_fifo_full_rate = %.4lf\n",
+                (double)total_css.remote_access_fifo_full / (
+                double)total_css.res_fails);
+    }
     //total_css.print_port_stats(fout, "\tL1S_cache");
   }
 }
@@ -3468,7 +3480,10 @@ void shader_core_config::set_pipeline_latency() {
 }
 
 void shader_core_ctx::cycle() {
-  if (!isactive() && get_not_completed() == 0) return;
+  // shader should continue to work if there are still remote access within 
+  // the fifos of the core
+  if (!isactive() && get_not_completed() == 0 && 
+      get_pending_remote_access() == 0) return;
 
   m_stats->shader_cycles[m_sid]++;
   writeback();
@@ -4265,7 +4280,7 @@ void exec_simt_core_cluster::create_shader_core_ctx() {
     m_L1S = new sharing_directory(L1S_name, m_config->m_L1S_config, m_cluster_id,
                                   get_shader_constant_cache_id(), 
                                   new shader_memory_interface(m_core[0], this), 
-                                  IN_L1C_MISS_QUEUE, m_gpu);
+                                  IN_L1C_MISS_QUEUE, m_gpu, this);
   }
   printf("L1S instantiation done\n");
 }
@@ -4585,6 +4600,28 @@ void simt_core_cluster::l1s_cycle() {
     assert(l1s_access_status == RESERVATION_FAIL);
     // on a reservation fail, do nothing
     // retry the same request the next cycle
+  }
+}
+
+void simt_core_cluster::print_fifo_info(FILE *fp) {
+  fprintf(fp, "cluster: %u\n", m_cluster_id);
+  fprintf(fp, "response buffer empty %u\n", m_response_fifo.empty());
+  fprintf(fp, "dir input buffer empty %u\n", m_l1s_input_fifo.empty());
+  for (int i = 0; i < m_config->n_simt_cores_per_cluster; i ++) { 
+    fprintf(fp, "core: %u, l1d remote buffer full %u l1 latency queue %u\n", 
+                i, m_core[i]->l1d_remote_access_fifo_full(),
+                m_core[i]->l1d_latency_queue_full());
+    bool is_dir = false;
+    mem_fetch* stuck_mf = m_core[i]->get_stuck_mf();
+    if (stuck_mf != NULL && stuck_mf->get_type() == DIR_RQST) {
+      is_dir = true;
+    }
+    fprintf(fp, "stuck mf is dir acc %u", is_dir);
+    fprintf(fp, "miss queue full %u\n", m_core[i]->l1d_miss_queue_full());
+    if (stuck_mf != NULL) {
+      fprintf(fp, "mshr full %u\n", m_core[i]->l1d_mshr_full(stuck_mf));
+    }
+    m_core[i]->display_mshr_table(fp);
   }
 }
 

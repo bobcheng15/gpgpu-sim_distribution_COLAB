@@ -613,6 +613,7 @@ cache_stats::cache_stats() {
   m_allocated_lines = 0;
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
+  m_remote_access_fifo_full = 0;
 }
 
 void cache_stats::clear() {
@@ -631,6 +632,7 @@ void cache_stats::clear() {
   m_allocated_lines = 0;
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
+  m_remote_access_fifo_full = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -686,6 +688,10 @@ void cache_stats::inc_used_line() {
 
 void cache_stats::inc_repeated_line() {
   m_repeated_alloc_lines ++;
+}
+
+void cache_stats::inc_remote_access_fifo_full() {
+  m_remote_access_fifo_full ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -773,6 +779,8 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_used_lines + cs.m_used_lines;
   ret.m_repeated_alloc_lines =
       m_repeated_alloc_lines + cs.m_repeated_alloc_lines;
+  ret.m_remote_access_fifo_full =
+      m_remote_access_fifo_full + cs.m_remote_access_fifo_full;
   return ret;
 }
 
@@ -800,6 +808,7 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_allocated_lines += cs.m_allocated_lines;
   m_used_lines += cs.m_used_lines;
   m_repeated_alloc_lines += cs.m_repeated_alloc_lines;
+  m_remote_access_fifo_full += cs.m_remote_access_fifo_full;
   return *this;
 }
 
@@ -911,6 +920,7 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.allocated_lines = m_allocated_lines;
   t_css.used_lines = m_used_lines;
   t_css.repeated_alloc_lines = m_repeated_alloc_lines;
+  t_css.remote_access_fifo_full = m_remote_access_fifo_full;
 
   css = t_css;
 }
@@ -1178,7 +1188,6 @@ void baseline_cache::send_read_request(new_addr_type addr,
       do_miss = true;
       mf->set_data_size(m_config.get_atom_sz());
       mf->set_addr(mshr_addr);
-      mf->set_type(READ_REQUEST);
       m_miss_queue.push_back(mf);
       mf->set_status(m_miss_queue_status, time);
       if (!wa) events.push_back(cache_event(READ_REQUEST_SENT));
@@ -1736,6 +1745,8 @@ enum cache_request_status l1_cache::process_tag_probe(
     // all non-hit result for directory requests are considered misses, and sent
     // to the lower cache hierarchy
     probe_status = MISS;
+    assert(mf->get_access_type() == GLOBAL_ACC_R);
+    assert(!wr);
   }
   cache_request_status access_status = probe_status;
   if (wr) {  // Write
@@ -1765,6 +1776,7 @@ enum cache_request_status l1_cache::process_tag_probe(
       // again to avoid deadlock)
       if (probe_status == MISS && mf->get_access_type() == GLOBAL_ACC_R &&
           mf->get_type() != DIR_RQST) {
+        assert(mf->get_type() != DIR_RQST);
         new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
         bool mshr_hit = m_mshrs.probe(mshr_addr);
         bool mshr_avail = !m_mshrs.full(mshr_addr);
@@ -1817,6 +1829,10 @@ enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
                                              std::list<cache_event> &events) {
   assert(mf->get_data_size() <= m_config.get_atom_sz());
   bool wr = mf->get_is_write();
+  if (mf->get_type() == DIR_RQST) {
+    assert(!wr);
+    assert(mf->get_access_type() == GLOBAL_ACC_R);
+  }
   new_addr_type block_addr = m_config.block_addr(addr);
   unsigned cache_index = (unsigned)-1;
   enum cache_request_status probe_status =
@@ -2076,33 +2092,45 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
   assert(status == HIT || status == MISS);
   if (status == HIT) {
     // obtain the core id pointed to by the directory entry
-    cache_block_t *line = m_tag_array->get_block(cache_index);
-    unsigned cluster_id = m_tag_array->get_core_id();    
+    cache_block_t *line = m_tag_array->get_block(cache_index);   
     unsigned remote_core_cid = line->get_sid();
-    shader_core_ctx *core = m_gpu->get_cluster(cluster_id)
-                            ->get_core(remote_core_cid);
+    shader_core_ctx *core = m_cluster->get_core(remote_core_cid);
     // the desired line is in remote core's l1
-    if (!core->l1d_remote_access_fifo_full()) { 
-      // response fifo not full yet, peform remote access
-      // update LRU state
-      remote_access_result = m_tag_array->access(block_addr, time, 
+    if (core->get_not_completed() && core->get_sid() != mf->get_sid()) {
+      if (!core->l1d_remote_access_fifo_full()) { 
+        // response fifo not full yet, peform remote access
+        // update LRU state
+        // also, do not push request to cores that have already completed their 
+        // execution.
+        assert(core->get_not_completed());
+        assert(core->get_sid() != mf->get_sid());
+        remote_access_result = m_tag_array->access(block_addr, time, 
                                                 cache_index, mf);
-      mf->set_type(DIR_RQST);
-      core->push_l1d_remote_access_fifo(mf);
-      assert(remote_access_result == HIT);
-      if (line->get_been_read() == false) {
-        line->set_been_read();
-        m_stats.inc_used_line();
+        assert(mf->get_type() == READ_REQUEST);
+        mf->set_type(DIR_RQST);
+        core->push_l1d_remote_access_fifo(mf);
+        assert(remote_access_result == HIT);
+        if (line->get_been_read() == false) {
+          line->set_been_read();
+          m_stats.inc_used_line();
+        }
+      } else {
+        // the remote request fifo of the targeting core is full 
+        // stall the sharing directory and try again later
+        m_stats.inc_remote_access_fifo_full();
+        remote_access_result = RESERVATION_FAIL;
       }
     } else {
-      // the remote request fifo of the targeting core is full 
-      // stall the sharing directory and try again later
-      m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
-      remote_access_result = RESERVATION_FAIL;
+      // if the core pointed to by the directory entry has already finished 
+      // execution, of if the core pointed to by the entry is the same as the
+      // the one the memory access originates from, invalidate the entry and 
+      // redirect the acces to the l2 cache.
+      line->set_status(INVALID, mf->get_access_sector_mask());
+      remote_access_result = (push_miss_queue(mf))? MISS: RESERVATION_FAIL;
     }
   } else {
     assert(status == MISS);
-    // do nothing on directory miss 
+    // on a directory miss, send the request to the l2 cache
     remote_access_result = (push_miss_queue(mf))? MISS: RESERVATION_FAIL;
   }
   m_stats.inc_stats(mf->get_access_type(), remote_access_result);

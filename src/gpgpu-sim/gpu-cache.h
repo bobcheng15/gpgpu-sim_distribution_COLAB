@@ -997,6 +997,7 @@ struct cache_sub_stats {
   unsigned long long allocated_lines;
   unsigned long long used_lines;
   unsigned long long repeated_alloc_lines;
+  unsigned long long remote_access_fifo_full;
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -1012,6 +1013,7 @@ struct cache_sub_stats {
     allocated_lines = 0;
     used_lines = 0;
     repeated_alloc_lines = 0;
+    remote_access_fifo_full = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -1029,6 +1031,7 @@ struct cache_sub_stats {
     allocated_lines += css.allocated_lines;
     used_lines += css.used_lines;
     repeated_alloc_lines += css.repeated_alloc_lines;
+    remote_access_fifo_full += css.remote_access_fifo_full;
 
     return *this;
   }
@@ -1058,6 +1061,8 @@ struct cache_sub_stats {
         used_lines + cs.used_lines;
     ret.repeated_alloc_lines = 
         repeated_alloc_lines + cs.repeated_alloc_lines;
+    ret.remote_access_fifo_full = 
+        remote_access_fifo_full + cs.remote_access_fifo_full;
     return ret;
   }
 
@@ -1140,6 +1145,7 @@ class cache_stats {
   void inc_allocated_line();
   void inc_used_line();
   void inc_repeated_line();
+  void inc_remote_access_fifo_full();
   enum cache_request_status select_stats_status(
       enum cache_request_status probe, enum cache_request_status access) const;
   unsigned long long &operator()(int access_type, int access_outcome,
@@ -1181,6 +1187,7 @@ class cache_stats {
   unsigned long long m_allocated_lines;
   unsigned long long m_used_lines;
   unsigned long long m_repeated_alloc_lines;
+  unsigned long long m_remote_access_fifo_full;
 };
 
 class cache_t {
@@ -1286,6 +1293,12 @@ class baseline_cache : public cache_t {
   void force_tag_access(new_addr_type addr, unsigned time,
                         mem_access_sector_mask_t mask) {
     m_tag_array->fill(addr, time, mask);
+  }
+
+  bool is_miss_queue_full() { return m_miss_queue.empty(); }
+  bool is_mshrs_full(mem_fetch* mf) {
+    new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
+    return m_mshrs.full(mshr_addr);
   }
 
  protected:
@@ -1628,6 +1641,8 @@ class l1_cache : public data_cache {
   
   enum cache_request_status probe(mem_fetch *mf);
 
+  void display_mshr_table(FILE *fp) { m_mshrs.display(fp); }
+
   void inc_replication_hit();
   void inc_potential_replication_hit();
   void intra_cluster_remote_access(mem_fetch *mf);
@@ -1867,9 +1882,11 @@ class sharing_directory : public read_only_cache {
  public: 
   sharing_directory(const char *name, cache_config &config, int cluster_id,
                   int type_id, mem_fetch_interface *memport,
-                  enum mem_fetch_status status, class gpgpu_sim *gpu)
+                  enum mem_fetch_status status, class gpgpu_sim *gpu, 
+                  class simt_core_cluster *cluster)
     : read_only_cache(name, config, cluster_id, type_id, memport, status) {
       m_gpu = gpu;
+      m_cluster = cluster;
   }
   virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf, 
                                            unsigned time);
@@ -1878,6 +1895,7 @@ class sharing_directory : public read_only_cache {
   bool push_miss_queue(mem_fetch *mf);
  protected:
   gpgpu_sim *m_gpu;
+  simt_core_cluster *m_cluster; 
 };
 
 
