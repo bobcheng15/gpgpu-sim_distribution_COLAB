@@ -1392,6 +1392,7 @@ class ldst_unit : public pipelined_simd_unit {
 
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
+  unsigned m_remote_local_sw_counter;
 };
 
 enum pipeline_stage_name_t {
@@ -1609,6 +1610,7 @@ class shader_core_config : public core_config {
   unsigned ldst_unit_response_queue_size;
   unsigned l1s_input_buffer_size;
   unsigned l1d_remote_buffer_size;
+  unsigned l1d_local_remote_ratio;
 
   int simt_core_sim_order;
 

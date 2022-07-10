@@ -1892,7 +1892,7 @@ class sharing_directory : public read_only_cache {
                                            unsigned time);
   enum cache_request_status probe(new_addr_type addr, mem_fetch *mf);
   void install_directory_entry(mem_fetch *mf, unsigned time);
-  bool push_miss_queue(mem_fetch *mf);
+  bool push_miss_queue(mem_fetch *mf, unsigned time);
  protected:
   gpgpu_sim *m_gpu;
   simt_core_cluster *m_cluster; 

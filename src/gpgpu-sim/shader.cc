@@ -1954,10 +1954,6 @@ void ldst_unit::L1_latency_queue_cycle() {
           m_core->dec_pending_remote_access();
         }
         else {
-          if (mf_next->get_access_type() == GLOBAL_ACC_R &&
-                m_L1D->probe(mf_next) == MISS) { 
-            m_L1D->intra_cluster_remote_access(mf_next);
-          }
           if (mf_next->get_inst().is_load()) {
             for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++) {
               if (mf_next->get_inst().out[r] > 0) {
@@ -2405,6 +2401,7 @@ void ldst_unit::init(mem_fetch_interface *icnt,
   m_next_global = NULL;
   m_last_inst_gpu_sim_cycle = 0;
   m_last_inst_gpu_tot_sim_cycle = 0;
+  m_remote_local_sw_counter = 0;
 }
 
 ldst_unit::ldst_unit(mem_fetch_interface *icnt,
@@ -2602,6 +2599,10 @@ inst->space.get_type() != shared_space) { unsigned warp_id = inst->warp_id();
 }
 */
 void ldst_unit::cycle() {
+  // increment the remote_local_sw_counter
+  m_remote_local_sw_counter = (m_remote_local_sw_counter == 
+                               m_config->l1d_local_remote_ratio)?
+                              1: m_remote_local_sw_counter + 1;
   writeback();
   for (int i = 0; i < m_config->reg_file_port_throughput; ++i)
     m_operand_collector->step();
@@ -2678,8 +2679,14 @@ void ldst_unit::cycle() {
   done &= shared_cycle(pipe_reg, rc_fail, type);
   done &= constant_cycle(pipe_reg, rc_fail, type);
   done &= texture_cycle(pipe_reg, rc_fail, type);
-  done &= memory_cycle(pipe_reg, rc_fail, type);
-  remote_access_cycle();
+  if (m_remote_local_sw_counter == m_config->l1d_local_remote_ratio) {
+    remote_access_cycle();
+    done &= memory_cycle(pipe_reg, rc_fail, type);
+  } 
+  else{
+    done &= memory_cycle(pipe_reg, rc_fail, type);
+    remote_access_cycle();
+  }
   m_mem_rc = rc_fail;
 
   if (!done) {  // log stall types and return
@@ -2964,8 +2971,8 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
       fprintf(stdout,
               "\tL1S_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
               "%.3lf, False_positive = %llu, fp_rate = %.4lf, alloc_lines = "
-              "%llu, \nused_lines = %llu, use_rate = %.4lf, repeated_lines = "
-              "%llu, repeated_rate = %.4lf, reservation_fail = %llu,\n"
+              "%llu, \n\t\tused_lines = %llu, use_rate = %.4lf, repeated_lines"
+              " = %llu, repeated_rate = %.4lf, reservation_fail = %llu,\n\t\t"
               "remote_access_fifo_full = %llu, remote_access_fifo_full_rate = "
               "%.3lf\n",
               i, css.accesses, css.misses,
@@ -4280,7 +4287,8 @@ void exec_simt_core_cluster::create_shader_core_ctx() {
     m_L1S = new sharing_directory(L1S_name, m_config->m_L1S_config, m_cluster_id,
                                   get_shader_constant_cache_id(), 
                                   new shader_memory_interface(m_core[0], this), 
-                                  IN_L1C_MISS_QUEUE, m_gpu, this);
+                                  IN_L1S_MISS_QUEUE, m_gpu, this);
+    m_core_sim_order.push_back(m_config->n_simt_cores_per_cluster);
   }
   printf("L1S instantiation done\n");
 }
@@ -4303,17 +4311,23 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
 void simt_core_cluster::core_cycle() {
   for (std::list<unsigned>::iterator it = m_core_sim_order.begin();
        it != m_core_sim_order.end(); ++it) {
-    m_core[*it]->cycle();
+    if (*it == m_config->n_simt_cores_per_cluster) {
+      //printf("CYCLE\n");
+      // eject memory requests in l1s miss queue to the interconnect
+      m_L1S->cycle();
+      // handle current pending accesses to the L1S 
+      l1s_cycle();
+    }
+    else {
+      m_core[*it]->cycle();
+    }
   }
 
   if (m_config->simt_core_sim_order == 1) {
     m_core_sim_order.splice(m_core_sim_order.end(), m_core_sim_order,
                             m_core_sim_order.begin());
   }
-  // eject memory requests in l1s miss queue to the interconnect
-  m_L1S->cycle();
-  // handle current pending accesses to the L1S 
-  l1s_cycle();
+  
 }
 
 void simt_core_cluster::reinit() {

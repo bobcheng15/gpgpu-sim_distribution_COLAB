@@ -336,6 +336,10 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       &l1d_remote_buffer_size, "number of remote request the remote fifo can"
       " buffer within each l/s unit", "8");
   option_parser_register(
+      opp, "-gpgpu_l1d_local_remote_ratio", OPT_UINT32, &l1d_local_remote_ratio,
+      "The ratio of l1d bandwidth allocated to the local and the remote access",
+      "4");
+  option_parser_register(
       opp, "-gpgpu_shmem_per_block", OPT_UINT32, &gpgpu_shmem_per_block,
       "Size of shared memory per thread block or CTA (default 48kB)", "49152");
   option_parser_register(

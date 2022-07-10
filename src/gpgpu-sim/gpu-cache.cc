@@ -1787,6 +1787,7 @@ enum cache_request_status l1_cache::process_tag_probe(
                                   ->n_simt_cores_per_cluster;  
           unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
           sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
+          assert(cluster_id == mf->get_tpc());
           enum cache_request_status remote_probe_status = 
                                     L1S->probe(mf->get_addr(), mf);
           if (remote_probe_status == HIT) {
@@ -1795,7 +1796,8 @@ enum cache_request_status l1_cache::process_tag_probe(
               m_extra_mf_fields[mf] = extra_mf_fields(
                                       mshr_addr, mf->get_addr(), cache_index, 
                                       mf->get_data_size(), m_config);
-              mf->set_status(m_miss_queue_status, time);
+              //mf->set_status(m_miss_queue_status, time);
+              mf->set_status(IN_L1S_INPUT_QUEUE, time);
               m_gpu->get_cluster(cluster_id)->push_l1s_input_fifo(mf);
               return MISS;
             }
@@ -2108,6 +2110,7 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
                                                 cache_index, mf);
         assert(mf->get_type() == READ_REQUEST);
         mf->set_type(DIR_RQST);
+        mf->set_status(IN_L1D_REMOTE_QUEUE, time);
         core->push_l1d_remote_access_fifo(mf);
         assert(remote_access_result == HIT);
         if (line->get_been_read() == false) {
@@ -2118,7 +2121,8 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
         // the remote request fifo of the targeting core is full 
         // stall the sharing directory and try again later
         m_stats.inc_remote_access_fifo_full();
-        remote_access_result = RESERVATION_FAIL;
+        remote_access_result = (push_miss_queue(mf, time))? 
+                               MISS: RESERVATION_FAIL;
       }
     } else {
       // if the core pointed to by the directory entry has already finished 
@@ -2126,18 +2130,19 @@ enum cache_request_status sharing_directory::access(new_addr_type addr,
       // the one the memory access originates from, invalidate the entry and 
       // redirect the acces to the l2 cache.
       line->set_status(INVALID, mf->get_access_sector_mask());
-      remote_access_result = (push_miss_queue(mf))? MISS: RESERVATION_FAIL;
+      remote_access_result = (push_miss_queue(mf, time))? 
+                             MISS: RESERVATION_FAIL;
     }
   } else {
     assert(status == MISS);
     // on a directory miss, send the request to the l2 cache
-    remote_access_result = (push_miss_queue(mf))? MISS: RESERVATION_FAIL;
+    remote_access_result = (push_miss_queue(mf, time))? MISS: RESERVATION_FAIL;
   }
   m_stats.inc_stats(mf->get_access_type(), remote_access_result);
   return remote_access_result;
 }
 
-bool sharing_directory::push_miss_queue(mem_fetch *mf) {
+bool sharing_directory::push_miss_queue(mem_fetch *mf, unsigned time) {
   if (miss_queue_full(1)){
     // the miss queue is already full, stall the sharing directory 
       // the miss queue is already full, stall the sharing directory 
@@ -2148,11 +2153,11 @@ bool sharing_directory::push_miss_queue(mem_fetch *mf) {
   else {
     mf->set_data_size(m_config.get_atom_sz());
     mf->set_addr(m_config.mshr_addr(mf->get_addr()));
+    mf->set_status(m_miss_queue_status, time);
     m_miss_queue.push_back(mf);
     return true;
   }
 }
-
 
 void sharing_directory::install_directory_entry (mem_fetch *mf, unsigned time) {
   unsigned cache_index = (unsigned) -1;
