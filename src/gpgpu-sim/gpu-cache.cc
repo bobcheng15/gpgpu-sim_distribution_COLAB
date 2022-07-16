@@ -1786,26 +1786,26 @@ enum cache_request_status l1_cache::process_tag_probe(
           unsigned cluster_size = m_gpu->getShaderCoreConfig()
                                   ->n_simt_cores_per_cluster;  
           unsigned cluster_id = m_tag_array->get_core_id() / cluster_size;
-          sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
+          //sharing_directory *L1S = m_gpu->get_cluster(cluster_id)->get_L1S();
           assert(cluster_id == mf->get_tpc());
-          enum cache_request_status remote_probe_status = 
-                                    L1S->probe(mf->get_addr(), mf);
-          if (remote_probe_status == HIT) {
-            if (!m_gpu->get_cluster(cluster_id)->l1s_input_fifo_full()) {
-              m_mshrs.add(mshr_addr, mf);
-              m_extra_mf_fields[mf] = extra_mf_fields(
-                                      mshr_addr, mf->get_addr(), cache_index, 
-                                      mf->get_data_size(), m_config);
-              //mf->set_status(m_miss_queue_status, time);
-              mf->set_status(IN_L1S_INPUT_QUEUE, time);
-              m_gpu->get_cluster(cluster_id)->push_l1s_input_fifo(mf);
-              return MISS;
-            }
-            else {
-              // if the l1s input fifo is full, deflects request to l2
-              m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
-            }
+          //enum cache_request_status remote_probe_status = 
+          //                          L1S->probe(mf->get_addr(), mf);
+          //if (remote_probe_status == HIT) {
+          if (!m_gpu->get_cluster(cluster_id)->l1s_input_fifo_full()) {
+            m_mshrs.add(mshr_addr, mf);
+            m_extra_mf_fields[mf] = extra_mf_fields(
+                                    mshr_addr, mf->get_addr(), cache_index, 
+                                    mf->get_data_size(), m_config);
+            //mf->set_status(m_miss_queue_status, time);
+            mf->set_status(IN_L1S_INPUT_QUEUE, time);
+            m_gpu->get_cluster(cluster_id)->push_l1s_input_fifo(mf);
+            return MISS;
           }
+          else {
+            // if the l1s input fifo is full, deflects request to l2
+            m_stats.inc_fail_stats(mf->get_access_type(), LINE_ALLOC_FAIL);
+          }
+          //}
         }
       }
       access_status =

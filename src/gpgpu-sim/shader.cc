@@ -2401,7 +2401,7 @@ void ldst_unit::init(mem_fetch_interface *icnt,
   m_next_global = NULL;
   m_last_inst_gpu_sim_cycle = 0;
   m_last_inst_gpu_tot_sim_cycle = 0;
-  m_remote_local_sw_counter = 0;
+  m_remote_local_sw_counter = 1;
 }
 
 ldst_unit::ldst_unit(mem_fetch_interface *icnt,
