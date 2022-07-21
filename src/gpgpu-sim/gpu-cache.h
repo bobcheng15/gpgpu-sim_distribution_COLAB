@@ -998,6 +998,8 @@ struct cache_sub_stats {
   unsigned long long used_lines;
   unsigned long long repeated_alloc_lines;
   unsigned long long remote_access_fifo_full;
+  unsigned long long false_positive;
+  unsigned long long remote_res_fail;
 
   cache_sub_stats() { clear(); }
   void clear() {
@@ -1014,6 +1016,8 @@ struct cache_sub_stats {
     used_lines = 0;
     repeated_alloc_lines = 0;
     remote_access_fifo_full = 0;
+    false_positive = 0;
+    remote_res_fail = 0;
   }
   cache_sub_stats &operator+=(const cache_sub_stats &css) {
     ///
@@ -1032,6 +1036,8 @@ struct cache_sub_stats {
     used_lines += css.used_lines;
     repeated_alloc_lines += css.repeated_alloc_lines;
     remote_access_fifo_full += css.remote_access_fifo_full;
+    false_positive += css.false_positive;
+    remote_res_fail += css.remote_res_fail;
 
     return *this;
   }
@@ -1063,6 +1069,10 @@ struct cache_sub_stats {
         repeated_alloc_lines + cs.repeated_alloc_lines;
     ret.remote_access_fifo_full = 
         remote_access_fifo_full + cs.remote_access_fifo_full;
+    ret.false_positive = 
+        false_positive + cs.false_positive;
+    ret.remote_res_fail = 
+        remote_res_fail + cs.remote_res_fail;
     return ret;
   }
 
@@ -1141,6 +1151,8 @@ class cache_stats {
   void inc_stats_pw(int access_type, int access_outcome);
   void inc_fail_stats(int access_type, int fail_outcome);
   void inc_replication_hit();
+  void inc_false_positive();
+  void inc_remote_res_fail();
   void inc_potential_replication_hit();
   void inc_allocated_line();
   void inc_used_line();
@@ -1188,6 +1200,8 @@ class cache_stats {
   unsigned long long m_used_lines;
   unsigned long long m_repeated_alloc_lines;
   unsigned long long m_remote_access_fifo_full;
+  unsigned long long m_false_positive;
+  unsigned long long m_remote_res_fail;
 };
 
 class cache_t {

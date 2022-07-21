@@ -614,6 +614,8 @@ cache_stats::cache_stats() {
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
   m_remote_access_fifo_full = 0;
+  m_false_positive = 0;
+  m_remote_res_fail = 0;
 }
 
 void cache_stats::clear() {
@@ -633,6 +635,8 @@ void cache_stats::clear() {
   m_used_lines = 0;
   m_repeated_alloc_lines = 0;
   m_remote_access_fifo_full = 0;
+  m_false_positive = 0;
+  m_remote_res_fail = 0;
 }
 
 void cache_stats::clear_pw() {
@@ -692,6 +696,14 @@ void cache_stats::inc_repeated_line() {
 
 void cache_stats::inc_remote_access_fifo_full() {
   m_remote_access_fifo_full ++;
+}
+
+void cache_stats::inc_false_positive() { 
+  m_false_positive ++;
+}
+
+void cache_stats::inc_remote_res_fail() { 
+  m_remote_res_fail ++;
 }
 
 enum cache_request_status cache_stats::select_stats_status(
@@ -781,6 +793,10 @@ cache_stats cache_stats::operator+(const cache_stats &cs) {
       m_repeated_alloc_lines + cs.m_repeated_alloc_lines;
   ret.m_remote_access_fifo_full =
       m_remote_access_fifo_full + cs.m_remote_access_fifo_full;
+  ret.m_false_positive = 
+      m_false_positive + cs.m_false_positive;
+  ret.m_remote_res_fail = 
+      m_remote_res_fail + cs.m_remote_res_fail;
   return ret;
 }
 
@@ -809,6 +825,8 @@ cache_stats &cache_stats::operator+=(const cache_stats &cs) {
   m_used_lines += cs.m_used_lines;
   m_repeated_alloc_lines += cs.m_repeated_alloc_lines;
   m_remote_access_fifo_full += cs.m_remote_access_fifo_full;
+  m_false_positive += cs.m_false_positive;
+  m_remote_res_fail += cs.m_remote_res_fail;
   return *this;
 }
 
@@ -921,6 +939,8 @@ void cache_stats::get_sub_stats(struct cache_sub_stats &css) const {
   t_css.used_lines = m_used_lines;
   t_css.repeated_alloc_lines = m_repeated_alloc_lines;
   t_css.remote_access_fifo_full = m_remote_access_fifo_full;
+  t_css.false_positive = m_false_positive;
+  t_css.remote_res_fail = m_remote_res_fail;
 
   css = t_css;
 }
@@ -1863,10 +1883,24 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
       m_tag_array->probe(block_addr, cache_index, mf, true);
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
-  m_stats.inc_stats(mf->get_access_type(),
+  if (mf->get_type() != DIR_RQST) {
+    m_stats.inc_stats(mf->get_access_type(),
                     m_stats.select_stats_status(probe_status, access_status));
-  m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
-                                                  probe_status, access_status));
+    m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
+                                                probe_status, access_status));
+  }
+  else { 
+    assert(access_status == HIT || access_status == MISS || 
+           access_status == RESERVATION_FAIL);
+    if (access_status == HIT) {
+      m_stats.inc_replication_hit();
+    } else if (access_status == MISS) {
+      m_stats.inc_false_positive();
+    } else {
+      assert(access_status == RESERVATION_FAIL);
+      m_stats.inc_remote_res_fail();
+    }
+  }
   return access_status;
 }
 

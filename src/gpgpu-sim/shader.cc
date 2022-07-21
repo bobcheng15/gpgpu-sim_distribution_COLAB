@@ -1950,7 +1950,7 @@ void ldst_unit::L1_latency_queue_cycle() {
           // hit counter and send this request to the response buffer for filling
           mf_next->set_type(DIR_REPLY);
           m_core->get_cluster()->push_response_fifo(mf_next);
-          inc_replication_hit();
+          //inc_replication_hit();
           m_core->dec_pending_remote_access();
         }
         else {
@@ -2886,12 +2886,17 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
 
       fprintf(stdout,
               "\tL1D_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
-              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu, "
-              "potential_replication_hit = %llu, replication_hits = %llu, "
-              "replication_capture_rate = %.4lf\n",
+              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu,\n "
+              "\t\tpotential_replication_hit = %llu, replication_hits = %llu, "
+              "false_positive = %llu, false_positive_rate = %.3lf,\n"
+              "\t\tremote_res_fail = %llu, replication_capture_rate = %.4lf\n",
               i, css.accesses, css.misses,
               (double)css.misses / (double)css.accesses, css.pending_hits,
-              css.res_fails, css.potential_replication_hit, css.replication_hit, 
+              css.res_fails, css.potential_replication_hit, css.replication_hit,
+              css.false_positive, 
+              (double)css.false_positive / ((double)css.false_positive + 
+                                        (double)css.potential_replication_hit),
+              css.remote_res_fail,                      
               (double)css.replication_hit / 
               (double)css.potential_replication_hit);
 
