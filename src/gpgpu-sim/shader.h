@@ -2449,6 +2449,7 @@ class simt_core_cluster {
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
   std::list<mem_fetch *> m_l1s_input_fifo;
+  std::deque<mem_fetch *> l1s_latency_queue;
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {

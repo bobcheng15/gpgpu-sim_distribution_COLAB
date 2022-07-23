@@ -4295,6 +4295,9 @@ void exec_simt_core_cluster::create_shader_core_ctx() {
                                   IN_L1S_MISS_QUEUE, m_gpu, this);
     m_core_sim_order.push_back(m_config->n_simt_cores_per_cluster);
   }
+  l1s_latency_queue.resize(m_config->m_L1S_config.m_l1s_latency, 
+                           (mem_fetch *)NULL);
+  assert(l1s_latency_queue.size() == m_config->m_L1S_config.m_l1s_latency);
   printf("L1S instantiation done\n");
 }
 
@@ -4596,29 +4599,43 @@ void simt_core_cluster::icnt_cycle() {
 }
 
 void simt_core_cluster::l1s_cycle() {
-  // l1s input queue is empty, nothing to do
-  if (m_l1s_input_fifo.empty()) return;
-  mem_fetch *mf = m_l1s_input_fifo.front();
-  enum cache_request_status l1s_access_status = 
-                              m_L1S->access(mf->get_addr(), mf, 
-                              m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
-  assert(l1s_access_status == HIT || l1s_access_status == MISS || 
-        l1s_access_status == RESERVATION_FAIL);
-  if (l1s_access_status == HIT) { 
-    // sharing directory hits!!
-    // remove the request from the head of queue
-    m_l1s_input_fifo.pop_front();
+  // l1s head of latency queue is empty, nothing to do
+  if (l1s_latency_queue[0] != NULL) {
+    mem_fetch *mf = l1s_latency_queue[0];
+    enum cache_request_status l1s_access_status = 
+                                m_L1S->access(mf->get_addr(), mf, 
+                                m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
+    assert(l1s_access_status == HIT || l1s_access_status == MISS || 
+          l1s_access_status == RESERVATION_FAIL);
+    if (l1s_access_status == HIT) { 
+      // sharing directory hits!!
+      // remove the request from the head of queue
+      l1s_latency_queue[0] = NULL;
+    }
+    else if (l1s_access_status == MISS) { 
+      // miss caused by a straight up l1s miss
+      // the request has been deflected to the level2 cache
+      // remove the missing request from the input queue
+      l1s_latency_queue[0] = NULL;
+    }
+    else {
+      assert(l1s_access_status == RESERVATION_FAIL);
+      // on a reservation fail, do nothing
+      // retry the same request the next cycle
+    }
   }
-  else if (l1s_access_status == MISS) { 
-    // miss caused by a straight up l1s miss
-    // the request has been deflected to the level2 cache
-    // remove the missing request from the input queue
+  // progress the latency queue
+  for (unsigned stage = 0; stage < m_config->m_L1S_config.m_l1s_latency - 1;
+         ++stage)
+      if (l1s_latency_queue[stage] == NULL) {
+        l1s_latency_queue[stage] = l1s_latency_queue[stage + 1];
+        l1s_latency_queue[stage + 1] = NULL;
+      }
+  if (l1s_latency_queue[m_config->m_L1S_config.m_l1s_latency - 1] == NULL && 
+      !m_l1s_input_fifo.empty()) {
+    l1s_latency_queue[m_config->m_L1S_config.m_l1s_latency - 1] = 
+                                      m_l1s_input_fifo.front();
     m_l1s_input_fifo.pop_front();
-  }
-  else {
-    assert(l1s_access_status == RESERVATION_FAIL);
-    // on a reservation fail, do nothing
-    // retry the same request the next cycle
   }
 }
 

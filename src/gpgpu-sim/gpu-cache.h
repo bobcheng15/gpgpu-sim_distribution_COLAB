@@ -486,6 +486,7 @@ enum cache_type { NORMAL = 0, SECTOR };
 
 class cache_config {
  public:
+  unsigned m_l1s_latency;
   cache_config() {
     m_valid = false;
     m_disabled = false;
