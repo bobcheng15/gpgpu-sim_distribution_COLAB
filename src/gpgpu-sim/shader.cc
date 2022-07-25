@@ -2916,6 +2916,14 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
             total_css.replication_hit);
     fprintf(fout, "\tL1D_total_potential_replication_hits = %llu\n",
             total_css.potential_replication_hit);
+    fprintf(fout, "\tL1D_total_false_positives = %llu\n", 
+            total_css.false_positive);
+    if (total_css.replication_hit + total_css.false_positive > 0) {
+      fprintf(fout, "\tL1D_total_false_positive_rate = %.4lf\n", 
+              (double)total_css.false_positive / 
+              ((double)total_css.false_positive + 
+              (double)total_css.replication_hit));
+    }
     if (total_css.potential_replication_hit > 0) {
       fprintf(fout, "\tL1D_total_replication_rate = %.4lf\n",
               (double)total_css.replication_hit / 
