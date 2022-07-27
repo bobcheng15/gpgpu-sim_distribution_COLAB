@@ -339,6 +339,10 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       &l1d_remote_buffer_size, "number of remote request the remote fifo can"
       " buffer within each l/s unit", "8");
   option_parser_register(
+      opp, "-gpgpu_l1d_remote_access_timeout", OPT_UINT32, &l1d_remote_timeout,
+      "The timeout used to decide whether to abort a remote" 
+      "access to prevent deadlock", "10000");
+  option_parser_register(
       opp, "-gpgpu_l1d_local_remote_ratio", OPT_UINT32, &l1d_local_remote_ratio,
       "The ratio of l1d bandwidth allocated to the local and the remote access",
       "4");

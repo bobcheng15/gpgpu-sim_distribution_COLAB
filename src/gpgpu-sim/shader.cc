@@ -1048,6 +1048,14 @@ void shader_core_ctx::issue() {
   //}
 }
 
+void shader_core_ctx::print_remote_fifo(FILE *fp) {
+  std::list<mem_fetch *>::iterator it = m_remote_access_fifo.begin();
+  for (it = m_remote_access_fifo.begin(); it != m_remote_access_fifo.end(); 
+                                                                      it ++) {
+    (*it)->print(fp);
+  }
+}
+
 shd_warp_t &scheduler_unit::warp(int i) { return *((*m_warp)[i]); }
 
 /**
@@ -1991,6 +1999,17 @@ void ldst_unit::L1_latency_queue_cycle() {
         // all lines are reserved, stalled
         assert(!read_sent);
         assert(!write_sent);
+        if (m_n_remote_access_stalled_cycle > m_config->l1d_remote_timeout) {
+          if (!l1d_miss_queue_full()) {
+            mem_fetch * mf = m_core->next_remote_access();
+            m_L1D->push_miss_queue(mf);
+            m_core->pop_l1d_remote_access_fifo();
+            m_n_remote_access_stalled_cycle = 0;
+            mf->set_status(IN_L1D_MISS_QUEUE, m_core->get_gpu()->gpu_sim_cycle +
+                                        m_core->get_gpu()->gpu_tot_sim_cycle);
+            printf("DEADLOCK PREVENTION");
+          }
+        }
       } else {
         assert(status == MISS || status == HIT_RESERVED);
         l1_latency_queue[j][0] = NULL;
@@ -2128,7 +2147,9 @@ void ldst_unit::remote_access_cycle() {
         NULL) {
         l1_latency_queue[bank_id][m_config->m_L1D_config.l1_latency - 1] = mf;
         m_core->pop_l1d_remote_access_fifo();
+        m_n_remote_access_stalled_cycle = 0;
       } else {
+        m_n_remote_access_stalled_cycle ++;
         break;
       }
     }
@@ -2402,6 +2423,7 @@ void ldst_unit::init(mem_fetch_interface *icnt,
   m_last_inst_gpu_sim_cycle = 0;
   m_last_inst_gpu_tot_sim_cycle = 0;
   m_remote_local_sw_counter = 1;
+  m_n_remote_access_stalled_cycle = 0;
 }
 
 ldst_unit::ldst_unit(mem_fetch_interface *icnt,
@@ -4655,6 +4677,7 @@ void simt_core_cluster::print_fifo_info(FILE *fp) {
     fprintf(fp, "core: %u, l1d remote buffer full %u l1 latency queue %u\n", 
                 i, m_core[i]->l1d_remote_access_fifo_full(),
                 m_core[i]->l1d_latency_queue_full());
+    m_core[i]->print_remote_fifo(fp);
     bool is_dir = false;
     mem_fetch* stuck_mf = m_core[i]->get_stuck_mf();
     if (stuck_mf != NULL && stuck_mf->get_type() == DIR_RQST) {

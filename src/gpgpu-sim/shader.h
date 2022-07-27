@@ -1393,6 +1393,7 @@ class ldst_unit : public pipelined_simd_unit {
   std::vector<std::deque<mem_fetch *>> l1_latency_queue;
   void L1_latency_queue_cycle();
   unsigned m_remote_local_sw_counter;
+  unsigned m_n_remote_access_stalled_cycle;
 };
 
 enum pipeline_stage_name_t {
@@ -1611,6 +1612,7 @@ class shader_core_config : public core_config {
   unsigned l1s_input_buffer_size;
   unsigned l1d_remote_buffer_size;
   unsigned l1d_local_remote_ratio;
+  unsigned l1d_remote_timeout;
 
   int simt_core_sim_order;
 
@@ -2329,6 +2331,7 @@ class shader_core_ctx : public core_t {
   bool occupy_shader_resource_1block(kernel_info_t &kernel, bool occupy);
   void release_shader_resource_1block(unsigned hw_ctaid, kernel_info_t &kernel);
   int find_available_hwtid(unsigned int cta_size, bool occupy);
+  void print_remote_fifo(FILE *fp);
 
  private:
   unsigned int m_occupied_n_threads;
@@ -2404,6 +2407,7 @@ class simt_core_cluster {
   unsigned get_n_active_cta() const;
   unsigned get_n_active_sms() const;
   gpgpu_sim *get_gpu() { return m_gpu; }
+
 
   void display_pipeline(unsigned sid, FILE *fout, int print_mem, int mask);
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,

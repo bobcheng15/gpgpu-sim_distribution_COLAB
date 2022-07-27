@@ -1310,7 +1310,7 @@ class baseline_cache : public cache_t {
     m_tag_array->fill(addr, time, mask);
   }
 
-  bool is_miss_queue_full() { return m_miss_queue.empty(); }
+  bool is_miss_queue_full() { return miss_queue_full(1); }
   bool is_mshrs_full(mem_fetch* mf) {
     new_addr_type mshr_addr = m_config.mshr_addr(mf->get_addr());
     return m_mshrs.full(mshr_addr);
@@ -1662,6 +1662,9 @@ class l1_cache : public data_cache {
   void inc_potential_replication_hit();
   void intra_cluster_remote_access(mem_fetch *mf);
   sharing_directory* get_L1S() const;
+  void push_miss_queue(mem_fetch * mf) { 
+    m_miss_queue.push_back(mf);
+  }
 
  protected:
   l1_cache(const char *name, cache_config &config, int core_id, int type_id,
