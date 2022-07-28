@@ -1883,13 +1883,11 @@ enum cache_request_status l1_cache::access(new_addr_type addr, mem_fetch *mf,
       m_tag_array->probe(block_addr, cache_index, mf, true);
   enum cache_request_status access_status =
       process_tag_probe(wr, probe_status, addr, cache_index, mf, time, events);
-  if (mf->get_type() != DIR_RQST) {
-    m_stats.inc_stats(mf->get_access_type(),
-                    m_stats.select_stats_status(probe_status, access_status));
-    m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
-                                                probe_status, access_status));
-  }
-  else { 
+  m_stats.inc_stats(mf->get_access_type(),
+                  m_stats.select_stats_status(probe_status, access_status));
+  m_stats.inc_stats_pw(mf->get_access_type(), m_stats.select_stats_status(
+                                              probe_status, access_status));
+  if (mf->get_type() == DIR_RQST) {
     assert(access_status == HIT || access_status == MISS || 
            access_status == RESERVATION_FAIL);
     if (access_status == HIT) {
